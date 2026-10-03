@@ -1,0 +1,555 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DAS Tag Manager API",
+    "version": "0.0.0",
+    "description": "DAS Tag Manager for one Network (containers and tags follow). Served on the Network host `<network>.tag-manager.<org domain>`. Conventions (docs/engineering/api-conventions.md): JSON in camelCase, instants in `*At` fields as ISO-8601 UTC, ids as prefixed ULIDs. Errors are RFC 7807 `application/problem+json` with a machine `code`. Authentication is an Organization session token bound to a Network; the Network a request acts for is ALWAYS the credential's, and the host must name it (403 `NETWORK_HOST_MISMATCH`). 401 and 403 problems apply to every authenticated operation; 503 `UPSTREAM_UNAVAILABLE` when the Organisation API, which answers for the credential's Network, does not."
+  },
+  "x-das-module": "tag-manager",
+  "x-das-product": "tag-manager",
+  "x-das-terraform": {
+    "resources": [],
+    "dataSources": [
+      {
+        "name": "session",
+        "description": "Who the credential is in DAS Tag Manager for its Network.",
+        "read": "GET /api/session"
+      }
+    ],
+    "actions": [],
+    "ephemeralResources": []
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "A Network host of the tag-manager module, `<network>.tag-manager.<org domain>`"
+    }
+  ],
+  "tags": [
+    {
+      "name": "meta",
+      "description": "Health and the contract"
+    },
+    {
+      "name": "session",
+      "description": "The credential and its Network"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An Organization session token (Cognito access token) bound to one Network."
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Client-chosen key, 1-255 printable ASCII characters (a UUID is fine). A retry with the same key and request replays the first response; the same key with a different request is 409 `IDEMPOTENCY_CONFLICT`.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[\\x21-\\x7E]{1,255}$"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Page size, 1-100 (default 50).",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "description": "The `nextCursor` of the previous page, passed back unchanged. Omit it for the first page.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "RequestId": {
+        "name": "X-Request-Id",
+        "in": "header",
+        "required": false,
+        "description": "Correlation id, 1-128 characters of `A-Z a-z 0-9 . _ : -`; echoed in the response. A malformed or missing one is replaced by `req_<ULID>`.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      }
+    },
+    "headers": {
+      "XRequestId": {
+        "description": "The request id: the client's well-formed X-Request-Id, else a generated `req_<ULID>`.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "Unauthenticated": {
+        "description": "No valid credential (`UNAUTHENTICATED`, `INVALID_CREDENTIAL`, `CREDENTIAL_REVOKED`)",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The credential may not do this (`NO_ACCESS`, `INSUFFICIENT_ROLE`, `INSUFFICIENT_SCOPE`, `NETWORK_CREDENTIAL_REQUIRED`, `NETWORK_HOST_MISMATCH`, `FEATURE_DISABLED`)",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "UpstreamUnavailable": {
+        "description": "The Organisation API did not answer for the credential's Network (`UPSTREAM_UNAVAILABLE`)",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ValidationFailed": {
+        "description": "The request is not valid (`VALIDATION_FAILED`, `MALFORMED_JSON`): an unknown query parameter, a malformed body, or a body the operation does not document",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "An unexpected failure (`INTERNAL_ERROR`); the request id names it in the service's logs",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Money": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "format": "decimal",
+            "description": "Decimal string, e.g. \"1250.00\""
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$",
+            "description": "ISO-4217 code, upper-case"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "additionalProperties": false,
+        "description": "An amount of money: a decimal string (never a JSON number) and its ISO-4217 currency."
+      },
+      "Problem": {
+        "type": "object",
+        "description": "RFC 7807 problem details. Branch on `code`, never on `title` or `detail`.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "instance",
+          "code",
+          "requestId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "`urn:das:problem:<code>`"
+          },
+          "title": {
+            "type": "string",
+            "description": "Short summary of the problem type"
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP status code"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Explanation of this occurrence"
+          },
+          "instance": {
+            "type": "string",
+            "description": "The request path"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "VALIDATION_FAILED",
+              "MALFORMED_JSON",
+              "INVALID_CURSOR",
+              "IDEMPOTENCY_KEY_REQUIRED",
+              "IDEMPOTENCY_KEY_INVALID",
+              "UNAUTHENTICATED",
+              "INVALID_CREDENTIAL",
+              "CREDENTIAL_REVOKED",
+              "CREDENTIAL_EXPIRED",
+              "NO_ACCESS",
+              "INSUFFICIENT_ROLE",
+              "INSUFFICIENT_SCOPE",
+              "ORG_CREDENTIAL_REQUIRED",
+              "NETWORK_CREDENTIAL_REQUIRED",
+              "NETWORK_HOST_MISMATCH",
+              "FEATURE_DISABLED",
+              "NOT_FOUND",
+              "PATH_NOT_CANONICAL",
+              "IDEMPOTENCY_CONFLICT",
+              "SLUG_TAKEN",
+              "NETWORK_CODE_TAKEN",
+              "ALREADY_EXISTS",
+              "LAST_OWNER",
+              "IN_USE",
+              "IDENTITY_PROVIDER_EXISTS",
+              "LOCKOUT",
+              "PAYLOAD_TOO_LARGE",
+              "UNSUPPORTED_MEDIA_TYPE",
+              "EMAIL_REJECTED",
+              "RATE_LIMITED",
+              "INTERNAL_ERROR",
+              "UPSTREAM_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ],
+            "description": "Machine-readable problem code"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "The request id (X-Request-Id)"
+          },
+          "errors": {
+            "type": "array",
+            "description": "Field errors of a `VALIDATION_FAILED` problem",
+            "items": {
+              "$ref": "#/components/schemas/ProblemFieldError"
+            }
+          }
+        }
+      },
+      "ProblemFieldError": {
+        "type": "object",
+        "description": "One invalid value",
+        "required": [
+          "location",
+          "path",
+          "message"
+        ],
+        "properties": {
+          "location": {
+            "type": "string",
+            "enum": [
+              "BODY",
+              "QUERY",
+              "PATH",
+              "HEADER"
+            ],
+            "description": "Where the value was sent"
+          },
+          "path": {
+            "type": "string",
+            "description": "Dotted path inside the location; empty for the whole value"
+          },
+          "message": {
+            "type": "string",
+            "description": "What is wrong"
+          }
+        }
+      },
+      "NextCursor": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Cursor of the next page, opaque; null on the last page."
+      },
+      "Health": {
+        "type": "object",
+        "description": "Liveness of the process",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "OK"
+            ],
+            "description": "Always `OK` when the process serves requests"
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "description": "The credential, the Network it acts for and the features effectively on for that Network.",
+        "required": [
+          "actor",
+          "role",
+          "scopes",
+          "network",
+          "features"
+        ],
+        "properties": {
+          "features": {
+            "type": "array",
+            "description": "Ids of the features effectively on for the Network (the UI shows what they own); switched in the Organisation API",
+            "items": {
+              "type": "string"
+            }
+          },
+          "actor": {
+            "type": "string",
+            "description": "Audit-grammar actor, `human:<email>`"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "VIEWER",
+              "OPERATOR",
+              "ADMIN"
+            ],
+            "description": "Coarse role of the credential"
+          },
+          "scopes": {
+            "type": "array",
+            "description": "Scopes `das:<product>:<resource>:<action>`",
+            "items": {
+              "type": "string"
+            }
+          },
+          "network": {
+            "$ref": "#/components/schemas/SessionNetwork"
+          }
+        }
+      },
+      "SessionNetwork": {
+        "type": "object",
+        "description": "The credential's Network, as the Organisation API records it.",
+        "required": [
+          "id",
+          "slug",
+          "displayName",
+          "timezone",
+          "defaultCurrency"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^net_[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "Network id, `net_<ULID>`"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Host label of the Network"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Human-readable name"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA time zone where the Network's days begin; dates are shown in it"
+          },
+          "defaultCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$",
+            "description": "ISO-4217 code of the Network's money"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Liveness probe",
+        "tags": [
+          "meta"
+        ],
+        "x-das-layer": "org",
+        "x-das-access": "open",
+        "x-das-cli": "hidden",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The process serves requests",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "operationId": "getOpenApi",
+        "summary": "This OpenAPI document",
+        "tags": [
+          "meta"
+        ],
+        "x-das-layer": "org",
+        "x-das-access": "open",
+        "x-das-cli": "hidden",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI 3.1 document, identical to the released artifact",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "OpenAPI 3.1 document"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Who the credential is and its Network",
+        "description": "Network-bound credential; any role.",
+        "tags": [
+          "session"
+        ],
+        "x-das-layer": "network",
+        "x-das-access": "operational",
+        "x-das-cli-verb": "get",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The session",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

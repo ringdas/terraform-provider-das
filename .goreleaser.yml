@@ -1,0 +1,49 @@
+# Release build of the DAS Terraform provider, in the layout the Terraform
+# and OpenTofu registries read: a zip per platform, a SHA256SUMS file signed
+# with the release key (signing-key.asc) and the registry manifest. Runs in
+# the public repository ringdas/terraform-provider-das on a `v*` tag
+# (.github/workflows/release.yml there); the DAS monorepo pushes that
+# tag (docs/engineering/release-process.md "Publishing the Terraform provider").
+version: 2
+project_name: terraform-provider-das
+builds:
+  - env:
+      - CGO_ENABLED=0
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - "-s -w -X main.version={{ .Version }}"
+    goos: [linux, darwin, windows, freebsd]
+    goarch: [amd64, arm64, "386", arm]
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: darwin
+        goarch: arm
+    binary: "{{ .ProjectName }}_v{{ .Version }}"
+archives:
+  - formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
+signs:
+  - artifacts: checksum
+    args:
+      - --batch
+      - --local-user
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - --output
+      - "${signature}"
+      - --detach-sign
+      - "${artifact}"
+release:
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
+changelog:
+  disable: true

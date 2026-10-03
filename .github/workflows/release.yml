@@ -1,0 +1,56 @@
+# Runs in the public repository ringdas/terraform-provider-das (this file is
+# mirrored there from the DAS monorepo): a `v*` tag, pushed by the monorepo's
+# publish-terraform-provider workflow, builds the provider with goreleaser
+# and publishes a signed GitHub Release, which the Terraform and OpenTofu
+# registries pick up. Secrets of this repository: GPG_PRIVATE_KEY and
+# PASSPHRASE, the release signing key (public half: signing-key.asc).
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.3"
+          terraform_wrapper: false
+
+      # The gates the monorepo ran, again on exactly what is released.
+      - name: Test
+        run: go test ./...
+
+      - name: Import the signing key
+        id: gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+
+      - name: Release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.gpg.outputs.fingerprint }}
