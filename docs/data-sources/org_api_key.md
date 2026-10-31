@@ -32,6 +32,6 @@ data "das_org_api_key" "example" {
 - `expires_at` (String) When the key stops authenticating, ISO-8601 UTC; null = no expiry.
 - `name` (String) Name of the key; audit events show it as `service:<name>`.
 - `revoked_at` (String) When the key was revoked, ISO-8601 UTC; null while it is not.
-- `role` (String) The Organization role the key holds: it acts with exactly what a person holding this role may do. One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`.
+- `role` (String) The Organization role the key holds: it acts with exactly what a person holding this role may do. One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`, `ORG_AUDITOR`.
 - `secret_ref` (String) Where the token was delivered (minted with `secretDelivery: SECRET_STORE`): a Secrets Manager reference `<ARN>#<version id>` to exactly that version; null when it was answered once. Deleted from the store when the key is revoked.
 

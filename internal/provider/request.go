@@ -3,6 +3,7 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"net/url"
 
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -23,8 +24,24 @@ func attrsOf(v tftypes.Value) (values, error) {
 // stringOf is the string value of an attribute ("" when null or unknown).
 func (v values) stringOf(name string) string {
 	tv, ok := v[name]
-	if !ok || !tv.IsKnown() || tv.IsNull() {
+	if !ok {
 		return ""
+	}
+	return textOf(tv)
+}
+
+// textOf is a primitive value as it goes into a path or an import id: a
+// string as it is, a number in decimal ("" when null, unknown or neither).
+func textOf(tv tftypes.Value) string {
+	if !tv.IsKnown() || tv.IsNull() {
+		return ""
+	}
+	if tv.Type().Is(tftypes.Number) {
+		var n big.Float
+		if err := tv.As(&n); err != nil {
+			return ""
+		}
+		return n.Text('f', -1)
 	}
 	var s string
 	if err := tv.As(&s); err != nil {

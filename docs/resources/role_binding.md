@@ -24,12 +24,12 @@ resource "das_role_binding" "example" {
 
 ### Required
 
-- `role` (String) A Network role. One of `NETWORK_ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`. Changing it replaces the resource.
+- `role` (String) A Network role. One of `NETWORK_ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`, `AUDITOR`. Changing it replaces the resource.
 
 ### Optional
 
 - `email` (String) The user's email (a user of the directory). Changing it replaces the resource.
-- `group_name` (String) The group's name. Changing it replaces the resource.
+- `group_name` (String) The group's name; never for a role that owns the Organization or reads the audit trail (ORG_OWNER, ORG_AUDITOR, AUDITOR), which only a person holds. Changing it replaces the resource.
 
 ### Read-Only
 

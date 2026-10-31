@@ -35,7 +35,7 @@ data "das_role_bindings" "example" {
 - `group_name` (String) The group's name; null for a user.
 - `id` (String) Binding id: `orb_<ULID>` on the Organization layer, `rlb_<ULID>` in a Network.
 - `network_id` (String) The Network the role is held in; null on the Organization layer.
-- `role` (String) The role (GET /api/roles describes each). One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`, `NETWORK_ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`.
+- `role` (String) The role (GET /api/roles describes each). One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`, `ORG_AUDITOR`, `NETWORK_ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`, `AUDITOR`.
 - `subject_type` (String) Whether a user or a group holds the role. One of `USER`, `GROUP`.
 - `user_id` (String) The user holding it, `usr_<ULID>`; null for a group.
 

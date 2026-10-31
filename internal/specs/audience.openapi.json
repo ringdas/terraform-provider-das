@@ -14,6 +14,26 @@
         "name": "session",
         "description": "Who the credential is in DAS Audience for its Network.",
         "read": "GET /api/session"
+      },
+      {
+        "name": "audit_events",
+        "description": "The audit trail of the credential's Network in DAS Audience, filtered (every page followed).",
+        "read": "GET /api/audit-events"
+      },
+      {
+        "name": "audit_event",
+        "description": "One row of the audit trail of the credential's Network in DAS Audience.",
+        "read": "GET /api/audit-events/{auditEventId}"
+      },
+      {
+        "name": "audit_chain",
+        "description": "The hash chain of the Network's audit trail in DAS Audience: its head and last verification.",
+        "read": "GET /api/audit-chain"
+      },
+      {
+        "name": "audit_chain_verification",
+        "description": "A verification of a segment of the Network's audit chain in DAS Audience, computed at read.",
+        "read": "GET /api/audit-chain/verification"
       }
     ],
     "actions": [],
@@ -33,6 +53,10 @@
     {
       "name": "session",
       "description": "The credential and its Network"
+    },
+    {
+      "name": "audit",
+      "description": "The audit trail: who changed what, before and after, its hash chain and export"
     }
   ],
   "components": {
@@ -44,6 +68,140 @@
       }
     },
     "parameters": {
+      "AuditActorFilter": {
+        "name": "actor",
+        "in": "query",
+        "required": false,
+        "description": "Only rows of this actor, exactly: `human:<email>`, `service:<apiKeyName>` or `agent:<name>/<session>`.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "AuditActionFilter": {
+        "name": "action",
+        "in": "query",
+        "required": false,
+        "description": "Only rows of this action, exactly, e.g. `api-key.create`.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "AuditResourceTypeFilter": {
+        "name": "resourceType",
+        "in": "query",
+        "required": false,
+        "description": "Only rows about this kind of resource, e.g. `api-key`.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "AuditResourceIdFilter": {
+        "name": "resourceId",
+        "in": "query",
+        "required": false,
+        "description": "Only rows about this resource, by its id.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "AuditChannelFilter": {
+        "name": "channel",
+        "in": "query",
+        "required": false,
+        "description": "Only rows that came through this channel.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "CONSOLE",
+            "CLI",
+            "API",
+            "AGENT",
+            "SCIM",
+            "SYSTEM"
+          ]
+        }
+      },
+      "AuditFromFilter": {
+        "name": "from",
+        "in": "query",
+        "required": false,
+        "description": "Only rows that occurred at or after this ISO-8601 instant.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "AuditToFilter": {
+        "name": "to",
+        "in": "query",
+        "required": false,
+        "description": "Only rows that occurred before this ISO-8601 instant.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "AuditExportFrom": {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "description": "The start of the window, an ISO-8601 instant (inclusive).",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "AuditExportTo": {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "description": "The end of the window, an ISO-8601 instant (exclusive), after `from` and at most 92 days later.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "AuditFromSeq": {
+        "name": "fromSeq",
+        "in": "query",
+        "required": false,
+        "description": "The first link to verify (default 1, the genesis).",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        }
+      },
+      "AuditVerifyLimit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "How many links to verify, 1-5000 (default 1000).",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000,
+          "default": 1000
+        }
+      },
+      "AuditEventIdPath": {
+        "name": "auditEventId",
+        "in": "path",
+        "required": true,
+        "description": "The audit event, `aud_<ULID>`.",
+        "schema": {
+          "type": "string",
+          "pattern": "^aud_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
       "IdempotencyKey": {
         "name": "Idempotency-Key",
         "in": "header",
@@ -97,6 +255,36 @@
       }
     },
     "responses": {
+      "ValidationFailed": {
+        "description": "The request is not valid (`VALIDATION_FAILED`, `MALFORMED_JSON`, `INVALID_CURSOR`): an unknown query parameter or a malformed value",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not found (`NOT_FOUND`)",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
       "Unauthenticated": {
         "description": "No valid credential (`UNAUTHENTICATED`, `INVALID_CREDENTIAL`, `CREDENTIAL_REVOKED`)",
         "headers": {
@@ -129,21 +317,6 @@
       },
       "UpstreamUnavailable": {
         "description": "The Organisation API did not answer for the credential's Network (`UPSTREAM_UNAVAILABLE`)",
-        "headers": {
-          "X-Request-Id": {
-            "$ref": "#/components/headers/XRequestId"
-          }
-        },
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          }
-        }
-      },
-      "ValidationFailed": {
-        "description": "The request is not valid (`VALIDATION_FAILED`, `MALFORMED_JSON`): an unknown query parameter, a malformed body, or a body the operation does not document",
         "headers": {
           "X-Request-Id": {
             "$ref": "#/components/headers/XRequestId"
@@ -195,6 +368,468 @@
         ],
         "additionalProperties": false,
         "description": "An amount of money: a decimal string (never a JSON number) and its ISO-4217 currency."
+      },
+      "AuditEvent": {
+        "type": "object",
+        "description": "One row of an audit trail: one mutation (or a chain's genesis). Its `hash` is sha256(`prevHash` || RFC 8785 JSON of the record v1: every field here but `hash`, plus `v: 1`), lower-case hex.",
+        "required": [
+          "id",
+          "chain",
+          "seq",
+          "prevHash",
+          "hash",
+          "networkId",
+          "occurredAt",
+          "actor",
+          "action",
+          "resourceType",
+          "resourceId",
+          "requestId",
+          "reason",
+          "changes",
+          "channel",
+          "actorRole",
+          "actorRoles",
+          "actorNetworkId",
+          "credentialKind",
+          "credentialId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The row, `aud_<ULID>` on a Network's trail, `orgaud_<ULID>` on the org layer's"
+          },
+          "chain": {
+            "type": "string",
+            "description": "The chain the row is a link of: `org`, or `network:<networkId>`"
+          },
+          "seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Its position in the chain, from 1 (the genesis) without gaps; null for a row written before the chain (sealed by the genesis)"
+          },
+          "prevHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The hash of the link before (64 zeros for the genesis); null before the chain",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "sha256(prevHash || RFC 8785 JSON of the record), lower-case hex; null before the chain",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "networkId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Network whose trail it is; null on the org layer's",
+            "pattern": "^net_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the change committed, ISO-8601 UTC with milliseconds"
+          },
+          "actor": {
+            "type": "string",
+            "description": "Who acted: `human:<email>`, `service:<apiKeyName>` or `agent:<name>/<session>`"
+          },
+          "action": {
+            "type": "string",
+            "description": "What was done, `<resource>.<verb>`, e.g. `api-key.create`; `audit-chain.genesis` for a chain's first link"
+          },
+          "resourceType": {
+            "type": "string",
+            "description": "The kind of resource, e.g. `api-key`"
+          },
+          "resourceId": {
+            "type": "string",
+            "description": "The resource's id"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "The X-Request-Id of the request that made the change"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why, when the operation records it"
+          },
+          "changes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "description": "What the mutation changed, one entry per row written; null before the chain. Empty for an act that changes no row (a test email)",
+            "items": {
+              "$ref": "#/components/schemas/AuditChange"
+            }
+          },
+          "channel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The door: the console, the das CLI (its User-Agent, a declaration), an API key, an AI agent, the identity provider over SCIM, or the platform itself",
+            "enum": [
+              "CONSOLE",
+              "CLI",
+              "API",
+              "AGENT",
+              "SCIM",
+              "SYSTEM",
+              null
+            ]
+          },
+          "actorRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The coarse role of the principal",
+            "enum": [
+              "VIEWER",
+              "OPERATOR",
+              "ADMIN",
+              null
+            ]
+          },
+          "actorRoles": {
+            "type": "array",
+            "description": "The role names the principal held (GET /api/roles of the Organisation API describes each); empty for an API key",
+            "items": {
+              "type": "string"
+            }
+          },
+          "actorNetworkId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Network the principal's credential is bound to; null for an Organization-level one"
+          },
+          "credentialKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The kind of credential, never its secret",
+            "enum": [
+              "API_KEY",
+              "ORG_API_KEY",
+              "COGNITO",
+              "NETWORK_SESSION",
+              "SCIM_TOKEN",
+              null
+            ]
+          },
+          "credentialId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The credential's id: an API key's `key_<ULID>`, an Organization API key's `okey_<ULID>`, a session's subject or token id, a SCIM token's `scimtok_<ULID>`"
+          }
+        }
+      },
+      "AuditChange": {
+        "type": "object",
+        "description": "One row a mutation wrote: its model and id, the operation and the fields that changed.",
+        "required": [
+          "model",
+          "id",
+          "op",
+          "fields"
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "The model (table), e.g. `ApiKey`"
+          },
+          "id": {
+            "type": "string",
+            "description": "The row's id"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "CREATE",
+              "UPDATE",
+              "DELETE"
+            ],
+            "description": "What happened to the row"
+          },
+          "fields": {
+            "type": "object",
+            "description": "The changed fields by name: `{ before, after }` (a CREATE's before and a DELETE's after are null; instants ISO-8601, decimals as strings), or `{ redacted: true, changed }` for a secret, a hash or a secret reference, whose value is never recorded",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AuditFieldChange"
+            }
+          }
+        }
+      },
+      "AuditFieldChange": {
+        "description": "One changed field: its values, or only that a secret changed.",
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The value before and after",
+            "required": [
+              "before",
+              "after"
+            ],
+            "properties": {
+              "before": {
+                "description": "The value before; null when the row did not exist"
+              },
+              "after": {
+                "description": "The value after; null when the row is gone"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A secret, hash or secret reference: only whether it changed",
+            "required": [
+              "redacted",
+              "changed"
+            ],
+            "properties": {
+              "redacted": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ],
+                "description": "Always true"
+              },
+              "changed": {
+                "type": "boolean",
+                "description": "Whether the value changed"
+              }
+            }
+          }
+        ]
+      },
+      "AuditEventPage": {
+        "type": "object",
+        "description": "One page of an audit trail, newest first.",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "The audit events of this page",
+            "items": {
+              "$ref": "#/components/schemas/AuditEvent"
+            }
+          },
+          "nextCursor": {
+            "$ref": "#/components/schemas/NextCursor"
+          }
+        }
+      },
+      "AuditChainBreak": {
+        "type": "object",
+        "description": "The first link that does not hold, and why.",
+        "required": [
+          "seq",
+          "reason"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "description": "The seq where the chain breaks"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "HASH_MISMATCH",
+              "PREV_HASH_MISMATCH",
+              "SEQ_GAP",
+              "GENESIS_MISSING",
+              "LEGACY_DIGEST_MISMATCH",
+              "TRUNCATED"
+            ],
+            "description": "HASH_MISMATCH: a field changed behind the application; PREV_HASH_MISMATCH: a link does not name the one before; SEQ_GAP: a link was deleted; GENESIS_MISSING: the first link is no genesis; LEGACY_DIGEST_MISMATCH: a row before the chain changed; TRUNCATED: the newest links were deleted"
+          }
+        }
+      },
+      "AuditChainCheck": {
+        "type": "object",
+        "description": "One verification of the chain the duty platform.audit-verify recorded.",
+        "required": [
+          "status",
+          "fromSeq",
+          "throughSeq",
+          "headSeq",
+          "headHash",
+          "breakSeq",
+          "breakReason",
+          "checkedAt"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "INTACT",
+              "BROKEN"
+            ],
+            "description": "The verdict"
+          },
+          "fromSeq": {
+            "type": "integer",
+            "description": "The first link it verified (1 = the whole chain)"
+          },
+          "throughSeq": {
+            "type": "integer",
+            "description": "The last link it verified; 0 for an empty chain"
+          },
+          "headSeq": {
+            "type": "integer",
+            "description": "The chain's head when it ran"
+          },
+          "headHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The head's hash when it ran (also logged by the duty, a witness outside the database)",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "breakSeq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The first link that did not hold; null when intact"
+          },
+          "breakReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it did not hold (AuditChainBreak.reason); null when intact"
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it ran, ISO-8601 UTC"
+          }
+        }
+      },
+      "AuditChain": {
+        "type": "object",
+        "description": "The hash chain of a trail: its head and its last recorded verification.",
+        "required": [
+          "chain",
+          "headSeq",
+          "headHash",
+          "lastCheck"
+        ],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "`org`, or `network:<networkId>`"
+          },
+          "headSeq": {
+            "type": "integer",
+            "description": "The newest link's seq; 0 while the chain is empty"
+          },
+          "headHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The newest link's hash; null while the chain is empty",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "lastCheck": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuditChainCheck"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest verification; null while none ran"
+          }
+        }
+      },
+      "AuditChainVerification": {
+        "type": "object",
+        "description": "A verification of one segment of the chain, computed now and recorded nowhere.",
+        "required": [
+          "chain",
+          "intact",
+          "checkedFromSeq",
+          "checkedThroughSeq",
+          "nextFromSeq",
+          "firstBreak",
+          "headSeq",
+          "headHash"
+        ],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "`org`, or `network:<networkId>`"
+          },
+          "intact": {
+            "type": "boolean",
+            "description": "Whether every link of the segment holds (and, from seq 1, the genesis seal)"
+          },
+          "checkedFromSeq": {
+            "type": "integer",
+            "description": "The first seq verified"
+          },
+          "checkedThroughSeq": {
+            "type": "integer",
+            "description": "The last seq verified without a break"
+          },
+          "nextFromSeq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Where the next segment starts; null at the head or at a break"
+          },
+          "firstBreak": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuditChainBreak"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first link that does not hold; null when intact"
+          },
+          "headSeq": {
+            "type": "integer",
+            "description": "The chain's head now"
+          },
+          "headHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The head's hash now",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
       },
       "Problem": {
         "type": "object",
@@ -257,6 +892,8 @@
               "IN_USE",
               "IDENTITY_PROVIDER_EXISTS",
               "LOCKOUT",
+              "STEP_NOT_CURRENT",
+              "SELF_APPROVAL",
               "PAYLOAD_TOO_LARGE",
               "UNSUPPORTED_MEDIA_TYPE",
               "EMAIL_REJECTED",
@@ -529,6 +1166,325 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    },
+    "/api/audit-events": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "x-das-layer": "network",
+        "x-das-access": "authenticated",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "operationId": "listAuditEvents",
+        "summary": "List the trail of the credential's Network",
+        "description": "Network-bound credential with the scope `das:platform:audit:read` (the roles ORG_AUDITOR, AUDITOR and ORG_OWNER; no admin role holds it). Newest first; every filter narrows. Each row says what changed (`changes`), who acted with which role, Network and credential, through which channel, and its link in the hash chain.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/AuditActorFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AuditActionFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AuditResourceTypeFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AuditResourceIdFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AuditChannelFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AuditFromFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AuditToFilter"
+          },
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of audit events, newest first",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEventPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    },
+    "/api/audit-events/export": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "x-das-layer": "network",
+        "x-das-access": "authenticated",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "operationId": "exportAuditEvents",
+        "summary": "Export the trail of the credential's Network as JSON Lines",
+        "description": "Network-bound credential with the scope `das:platform:audit:read` (the roles ORG_AUDITOR, AUDITOR and ORG_OWNER; no admin role holds it). Every row that occurred in [from, to) - at most 92 days - one AuditEvent per line: the rows written before the chain first, then the links by seq, each with its seq, prevHash and hash, so the export is verifiable offline (sha256(prevHash || RFC 8785 JSON of the record), docs/engineering/api-conventions.md#audit).",
+        "x-das-cli-verb": "get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AuditExportFrom"
+          },
+          {
+            "$ref": "#/components/parameters/AuditExportTo"
+          },
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON Lines (`application/x-ndjson`): one AuditEvent per line, nothing else",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEvent",
+                  "description": "One line: one AuditEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    },
+    "/api/audit-events/{auditEventId}": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "x-das-layer": "network",
+        "x-das-access": "authenticated",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "operationId": "getAuditEvent",
+        "summary": "Get one row of the trail of the credential's Network",
+        "description": "Network-bound credential with the scope `das:platform:audit:read` (the roles ORG_AUDITOR, AUDITOR and ORG_OWNER; no admin role holds it).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AuditEventIdPath"
+          },
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The audit event",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    },
+    "/api/audit-chain": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "x-das-layer": "network",
+        "x-das-access": "authenticated",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "operationId": "getAuditChain",
+        "summary": "The hash chain of the trail of the credential's Network",
+        "description": "Network-bound credential with the scope `das:platform:audit:read` (the roles ORG_AUDITOR, AUDITOR and ORG_OWNER; no admin role holds it). The chain's head and the last verification the duty platform.audit-verify recorded.",
+        "x-das-cli-verb": "get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The chain's head and last verification",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditChain"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          }
+        }
+      }
+    },
+    "/api/audit-chain/verification": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "x-das-layer": "network",
+        "x-das-access": "authenticated",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "operationId": "verifyAuditChain",
+        "summary": "Verify a segment of the hash chain of the trail of the credential's Network",
+        "description": "Network-bound credential with the scope `das:platform:audit:read` (the roles ORG_AUDITOR, AUDITOR and ORG_OWNER; no admin role holds it). Recomputes the links [fromSeq, fromSeq + limit) now and writes nothing; continue at `nextFromSeq` until it is null.",
+        "x-das-cli-verb": "get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AuditFromSeq"
+          },
+          {
+            "$ref": "#/components/parameters/AuditVerifyLimit"
+          },
+          {
+            "$ref": "#/components/parameters/RequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The verdict on the segment",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditChainVerification"
                 }
               }
             }

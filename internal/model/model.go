@@ -326,6 +326,15 @@ func buildResource(spec *contract.Spec, prefix string, def contract.ResourceDef)
 		if createParams[p.Name] || r.Create.Body.Property(p.Name) != nil {
 			continue
 		}
+		// A property the create answers under the parameter's own name (a
+		// version number): read back as its own attribute, so it must always
+		// be there and fit in a path.
+		if prop := r.CreatedEntity().Property(p.Name); prop != nil {
+			if !prop.Required || prop.Schema == nil || prop.Schema.Nullable || (prop.Schema.Kind != contract.KindString && prop.Schema.Kind != contract.KindInteger) {
+				return nil, fmt.Errorf("%s of the create's answer is not a required, non-null string or integer: it cannot be the identity", p.Name)
+			}
+			continue
+		}
 		if r.IDParam != "" {
 			return nil, fmt.Errorf("%s and %s cannot both come from the create's answer", r.IDParam, p.Name)
 		}

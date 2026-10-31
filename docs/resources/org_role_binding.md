@@ -24,12 +24,12 @@ resource "das_org_role_binding" "example" {
 
 ### Required
 
-- `role` (String) An Organization role. One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`. Changing it replaces the resource.
+- `role` (String) An Organization role. One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`, `ORG_AUDITOR`. Changing it replaces the resource.
 
 ### Optional
 
 - `email` (String) The user's email (a user of the directory). Changing it replaces the resource.
-- `group_name` (String) The group's name. Changing it replaces the resource.
+- `group_name` (String) The group's name; never for a role that owns the Organization or reads the audit trail (ORG_OWNER, ORG_AUDITOR, AUDITOR), which only a person holds. Changing it replaces the resource.
 
 ### Read-Only
 

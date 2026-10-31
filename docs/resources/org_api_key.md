@@ -25,7 +25,7 @@ resource "das_org_api_key" "example" {
 ### Required
 
 - `name` (String) Name of the key; audit events show it as `service:<name>`. Changing it replaces the resource.
-- `role` (String) The Organization role the key holds: it acts with exactly what a person holding this role may do. One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`. Changing it replaces the resource.
+- `role` (String) The Organization role the key holds: it acts with exactly what a person holding this role may do. One of `ORG_OWNER`, `ORG_ADMIN`, `ORG_VIEWER`, `ORG_AUDITOR`. Changing it replaces the resource.
 
 ### Optional
 

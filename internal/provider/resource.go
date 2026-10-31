@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -12,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
 	"github.com/ringdas/terraform-provider-das/internal/client"
+	"github.com/ringdas/terraform-provider-das/internal/contract"
 	"github.com/ringdas/terraform-provider-das/internal/model"
 )
 
@@ -45,6 +47,16 @@ func (r *genericResource) Configure(_ context.Context, req resource.ConfigureReq
 	if c, ok := req.ProviderData.(*client.Client); ok {
 		r.c = c
 	}
+}
+
+// attrNamed is the attribute with this Terraform name, or nil.
+func attrNamed(attrs []*model.Attr, name string) *model.Attr {
+	for _, a := range attrs {
+		if a.Name == name {
+			return a
+		}
+	}
+	return nil
 }
 
 func (r *genericResource) identity(vals values) func(string) string {
@@ -102,12 +114,7 @@ func (r *genericResource) stateFrom(answer any, base values, preferBase bool) (t
 	case len(r.m.Identity) > 0:
 		parts := make([]string, 0, len(r.m.Identity))
 		for _, p := range r.m.Identity {
-			v := vals[r.m.IdentityAttr(p)]
-			var s string
-			if v.IsKnown() && !v.IsNull() {
-				_ = v.As(&s)
-			}
-			parts = append(parts, s)
+			parts = append(parts, textOf(vals[r.m.IdentityAttr(p)]))
 		}
 		id = strings.Join(parts, "/")
 	}
@@ -329,7 +336,18 @@ func (r *genericResource) ImportState(ctx context.Context, req resource.ImportSt
 			resp.Diagnostics.AddError("Import id of "+r.m.TypeName, fmt.Sprintf("empty %s in %q", p, req.ID))
 			return
 		}
-		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root(r.m.IdentityAttr(p)), types.StringValue(parts[i]))...)
+		name := r.m.IdentityAttr(p)
+		var value any = types.StringValue(parts[i])
+		if a := attrNamed(r.m.Attrs, name); a != nil && a.Kind == contract.KindInteger {
+			// A number in the path (a version): the attribute holds it as a number.
+			n, err := strconv.ParseInt(parts[i], 10, 64)
+			if err != nil {
+				resp.Diagnostics.AddError("Import id of "+r.m.TypeName, fmt.Sprintf("%s is not an integer in %q", p, req.ID))
+				return
+			}
+			value = types.Int64Value(n)
+		}
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root(name), value)...)
 	}
 	if r.m.IDParam == "" {
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(req.ID))...)
