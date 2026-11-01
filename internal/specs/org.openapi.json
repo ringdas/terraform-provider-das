@@ -3227,6 +3227,8 @@
           "status",
           "linked",
           "source",
+          "signIn",
+          "invitation",
           "createdBy",
           "createdAt",
           "updatedAt"
@@ -3262,6 +3264,20 @@
           "source": {
             "$ref": "#/components/schemas/DirectorySource"
           },
+          "signIn": {
+            "$ref": "#/components/schemas/UserSignIn"
+          },
+          "invitation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserInvitation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The invitation an admin sent and how far its delivery got; null for a person SCIM provisioned or the first owner"
+          },
           "createdBy": {
             "type": "string",
             "description": "Actor who invited the user"
@@ -3275,6 +3291,116 @@
             "type": "string",
             "format": "date-time",
             "description": "Last change, ISO-8601 UTC"
+          }
+        }
+      },
+      "UserSignIn": {
+        "type": "object",
+        "description": "How this person signs in under the Organization's sign-in configuration now: an enabled identity provider whose email domains cover their address takes them to it; otherwise a password of the Organization's own sign-in while the sign-in policy allows it.",
+        "required": [
+          "method",
+          "identityProvider"
+        ],
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "IDENTITY_PROVIDER",
+              "PASSWORD",
+              "NONE"
+            ],
+            "description": "`IDENTITY_PROVIDER`: with their company account through `identityProvider`; `PASSWORD`: with their email and a password (an invitation's is temporary, emailed to them); `NONE`: no provider covers their email domain and the policy allows identity providers only, so they cannot sign in"
+          },
+          "identityProvider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The display name of the identity provider (`IDENTITY_PROVIDER`), otherwise null"
+          }
+        }
+      },
+      "UserInvitation": {
+        "type": "object",
+        "description": "The invitation of a person an admin invited, delivered in the background shortly after the invitation: an email naming their identity provider, or an account of the Organization's own sign-in (whose email carries a temporary password) and an email saying where to sign in. Inviting a suspended person who never signed in starts it over.",
+        "required": [
+          "invitedBy",
+          "invitedAt",
+          "method",
+          "identityProvider",
+          "poolInvitedAt",
+          "emailedAt",
+          "completedAt",
+          "attemptedAt",
+          "error"
+        ],
+        "properties": {
+          "invitedBy": {
+            "type": "string",
+            "description": "Actor who invited them, or invited them again"
+          },
+          "invitedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When, ISO-8601 UTC"
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "IDENTITY_PROVIDER",
+              "PASSWORD",
+              null
+            ],
+            "description": "How the delivery let them in (`signIn.method` at the time); null until it acted"
+          },
+          "identityProvider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The identity provider the email named (`IDENTITY_PROVIDER`), otherwise null"
+          },
+          "poolInvitedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When their account of the Organization's own sign-in was created and its email with a temporary password sent (`PASSWORD`); null before, or when they already had a password"
+          },
+          "emailedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the invitation email went out; null before, or when the installation sends no email"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the delivery finished; null while it is pending"
+          },
+          "attemptedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The last attempt; null before the first"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last attempt did not finish (it is retried); null when it did"
           }
         }
       },
@@ -5022,7 +5148,9 @@
               "logoutUrl",
               "clientId",
               "redirectUris",
-              "scopes"
+              "scopes",
+              "identityProviders",
+              "localSignIn"
             ],
             "properties": {
               "authorizeUrl": {
@@ -5060,6 +5188,36 @@
                   "type": "string",
                   "description": "An OAuth 2.0 scope"
                 }
+              },
+              "identityProviders": {
+                "type": "array",
+                "description": "The identity providers this app client offers, oldest first, as the Organization's sign-in configuration was last applied to its user pool (enabled in the console and accepted by the pool). With exactly one, das login sends the person straight to it with `identity_provider=<name>` on the authorization request and the Hosted UI's own page is skipped; with several or none it shows the Hosted UI's page",
+                "items": {
+                  "type": "object",
+                  "description": "An identity provider people sign in with",
+                  "required": [
+                    "name",
+                    "displayName"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The provider's name in the user pool: the value of `identity_provider` on the authorization request"
+                    },
+                    "displayName": {
+                      "type": "string",
+                      "description": "The provider's name as people see it"
+                    }
+                  }
+                }
+              },
+              "localSignIn": {
+                "type": "string",
+                "enum": [
+                  "ALLOWED",
+                  "IDP_ONLY"
+                ],
+                "description": "Whether this app client offers the user pool's own email-and-password sign-in (ALLOWED) or only the identity providers (IDP_ONLY). With ALLOWED and one identity provider, the Hosted UI's page with the password form is reached on purpose only: das login --password"
               }
             }
           }
@@ -5083,7 +5241,9 @@
               "tokenUrl",
               "logoutUrl",
               "clientId",
-              "scopes"
+              "scopes",
+              "identityProviders",
+              "localSignIn"
             ],
             "properties": {
               "authorizeUrl": {
@@ -5112,6 +5272,36 @@
                   "type": "string",
                   "description": "An OAuth 2.0 scope"
                 }
+              },
+              "identityProviders": {
+                "type": "array",
+                "description": "The identity providers this app client offers, oldest first, as the Organization's sign-in configuration was last applied to its user pool (enabled in the console and accepted by the pool). With exactly one, a web app sends the person straight to it with `identity_provider=<name>` on the authorization request and the Hosted UI's own page is skipped; with several or none it shows the Hosted UI's page",
+                "items": {
+                  "type": "object",
+                  "description": "An identity provider people sign in with",
+                  "required": [
+                    "name",
+                    "displayName"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "The provider's name in the user pool: the value of `identity_provider` on the authorization request"
+                    },
+                    "displayName": {
+                      "type": "string",
+                      "description": "The provider's name as people see it"
+                    }
+                  }
+                }
+              },
+              "localSignIn": {
+                "type": "string",
+                "enum": [
+                  "ALLOWED",
+                  "IDP_ONLY"
+                ],
+                "description": "Whether this app client offers the user pool's own email-and-password sign-in (ALLOWED) or only the identity providers (IDP_ONLY). With ALLOWED and one identity provider, the Hosted UI's page with the password form is reached on purpose only: a web app asked for the password sign-in (`?signin=password`)"
               }
             }
           }
@@ -7094,7 +7284,7 @@
       "post": {
         "operationId": "inviteUser",
         "summary": "Invite a person",
-        "description": "Organization session with the `ADMIN` role and the scope `das:platform:users:admin`. The user holds no role until one is bound; their first sign-in with this email links their identity. Inviting a `SUSPENDED` person again reinstates them - the same user, `INVITED` or `ACTIVE` again, with the new name (reinstating an owner needs an owner) - audited as `user.reinstate`; an `INVITED` or `ACTIVE` person is 409 `ALREADY_EXISTS`. Audited as `user.invite`.",
+        "description": "Organization session with the `ADMIN` role and the scope `das:platform:users:admin`. The user holds no role until one is bound; their first sign-in with this email links their identity. The invitation is delivered in the background shortly after (`invitation`): a person whose email domain an enabled identity provider covers gets an email saying who invited them, where to sign in and that they sign in with their company account; anyone else gets an account of the Organization's own sign-in, whose email carries a temporary password, and an email saying who invited them and where to sign in. Inviting a `SUSPENDED` person again reinstates them - the same user, `INVITED` or `ACTIVE` again, with the new name (reinstating an owner needs an owner); one who never signed in is invited again - audited as `user.reinstate`; an `INVITED` or `ACTIVE` person is 409 `ALREADY_EXISTS`. Audited as `user.invite`.",
         "tags": [
           "directory"
         ],

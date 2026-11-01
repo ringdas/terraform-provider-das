@@ -2,6 +2,49 @@
 
 All notable changes to `terraform-provider-das`. The Release PR writes each section from the `.changeset/*.md` files (docs/engineering/release-process.md); do not edit it by hand.
 
+## [0.3.0] - 2026-10-31
+
+### Added
+
+- **An invitation reaches the person it invites.** `POST /api/users` wrote only a directory row: no
+  email went out and the invitation-only user pool had no user, so a person nobody told could not know
+  they were invited, and a person outside every identity provider's domains had no way in at all. The
+  request now writes a `UserInvitation` (`usrinv_`, a facet of `User`, clone class `queue`) in the same
+  transaction, an outbox the duty `platform.identity-sync` delivers on the leader (step 7,
+  `apps/org-api/src/identity/invitations.ts`), so the request makes no external call: an email domain an
+  enabled identity provider covers gets an email (sender purpose `platform.sign-in`) saying who invited
+  them, the Organization console URL and that they sign in with their company account through that
+  provider; any other domain, while local sign-in is allowed, becomes a local user of the pool
+  (`AdminCreateUser`, email verified; the pool's own message carries a temporary password) and gets the
+  same email saying where to sign in. Delivery is idempotent: a pool user an earlier attempt created is
+  found (`AdminGetUser`) and not created again, a refusal is recorded on the invitation and retried with
+  backoff, and refused invitations mark the identity-sync state `invitations` (health check
+  `platform.identity-sync-failing`). Inviting a suspended person who never signed in starts the
+  invitation over (the pool resends its own). Every `User` now answers `signIn` (`IDENTITY_PROVIDER`
+  with the provider's name, `PASSWORD` or `NONE`) and `invitation` (who, when, how far the delivery got,
+  the last error); the console's person panel says how they sign in and where their invitation is.
+  People invited before this release who have not signed in yet are invited by the migration's
+  backfill. The dev identity provider plays the pool's local users. (#285)
+
+### Fixed
+
+- **Sign-in goes straight to the identity provider; the password form only on purpose.** Opening a
+  DAS host sent a person to the Hosted UI's page ("Continue with entra" above an email and password
+  form) before every sign-in. `GET /api/sign-in` and `GET /api/cli` now also name the ways their app
+  client offers, as the duty `platform.identity-sync` last applied them: `identityProviders` (the
+  name in the pool and the display name of each provider still enabled in the console) and
+  `localSignIn` (`ALLOWED` / `IDP_ONLY`). With exactly one provider the web apps and `das login` put
+  `identity_provider=<name>` on the authorization request, Cognito's parameter that skips its page,
+  so the person lands on the company's sign-in (Entra ID) at once; with several or none the page asks
+  as before. The page with the password form is reached on purpose only, while the policy allows a
+  password: `?signin=password` on any web app URL (the link of a password user's invitation email
+  now carries it), the low-emphasis "Sign in with email and password" on the new signed-out page and
+  on the no-access page (`SignedOut`, `PasswordSignInLink`), and `das login --password`. The web
+  apps remember that choice in a cookie `das-signin=password` on the Organization domain. After
+  sign-out a web app shows the signed-out page instead of signing in again by itself, which the
+  identity provider's session would do at once; a sign-in the Hosted UI or the provider refused is
+  shown with its reason. (#69)
+
 ## [0.2.0] - 2026-10-31
 
 ### Added

@@ -37,7 +37,9 @@ data "das_users" "example" {
 - `display_name` (String) Name shown in the UI.
 - `email` (String) Lower-case email; the first sign-in links the identity by it.
 - `id` (String) User id, `usr_<ULID>`.
+- `invitation` (Attributes) The invitation an admin sent and how far its delivery got; null for a person SCIM provisioned or the first owner.
 - `linked` (Boolean) Whether the identity provider's identity is linked (the user signed in once).
+- `sign_in` (Attributes) How this person signs in under the Organization's sign-in configuration now: an enabled identity provider whose email domains cover their address takes them to it; otherwise a password of the Organization's own sign-in while the sign-in policy allows it.
 - `source` (String) Who writes it: `DAS` (an admin) or `SCIM` (the identity provider's provisioning, which created it or last wrote it). One of `DAS`, `SCIM`.
 - `status` (String) `INVITED` until the first sign-in, then `ACTIVE`; `SUSPENDED` has no access. One of `INVITED`, `ACTIVE`, `SUSPENDED`.
 - `updated_at` (String) Last change, ISO-8601 UTC.
