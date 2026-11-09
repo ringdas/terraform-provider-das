@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,7 +11,12 @@ import (
 	dschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	eschema "github.com/hashicorp/terraform-plugin-framework/ephemeral/schema"
 	rschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -28,6 +34,11 @@ func Description(a *model.Attr) string {
 	}
 	if len(a.Enum) > 0 {
 		d += " One of `" + strings.Join(a.Enum, "`, `") + "`."
+	}
+	if a.HasDefault {
+		if b, err := json.Marshal(a.Default); err == nil {
+			d = strings.TrimSpace(d + " Defaults to `" + string(b) + "`.")
+		}
 	}
 	switch {
 	case a.ForceNew:
@@ -53,6 +64,9 @@ func elemType(a *model.Attr) (attr.Type, error) {
 		return types.BoolType, nil
 	case contract.KindArray:
 		e, err := elemType(a.Elem)
+		if a.Set {
+			return types.SetType{ElemType: e}, err
+		}
 		return types.ListType{ElemType: e}, err
 	case contract.KindMap:
 		e, err := elemType(a.Elem)
@@ -131,6 +145,9 @@ func resourceAttrs(list []*model.Attr) (map[string]rschema.Attribute, error) {
 
 func resourceAttr(a *model.Attr) (rschema.Attribute, error) {
 	d := Description(a)
+	if a.HasDefault {
+		return defaultedAttr(a, d)
+	}
 	switch a.Kind {
 	case contract.KindString:
 		return rschema.StringAttribute{Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, WriteOnly: a.WriteOnly, Description: d, MarkdownDescription: d, Validators: stringValidators(a)}, nil
@@ -155,7 +172,13 @@ func resourceAttr(a *model.Attr) (rschema.Attribute, error) {
 				return nil, err
 			}
 			obj := rschema.NestedAttributeObject{Attributes: nested}
-			if a.Kind == contract.KindArray {
+			switch {
+			case a.Kind == contract.KindArray && a.Set:
+				if a.WriteOnly {
+					return nil, fmt.Errorf("a set is never write-only in Terraform")
+				}
+				return rschema.SetNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
+			case a.Kind == contract.KindArray:
 				return rschema.ListNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, WriteOnly: a.WriteOnly, Description: d, MarkdownDescription: d}, nil
 			}
 			return rschema.MapNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, WriteOnly: a.WriteOnly, Description: d, MarkdownDescription: d}, nil
@@ -164,12 +187,56 @@ func resourceAttr(a *model.Attr) (rschema.Attribute, error) {
 		if err != nil {
 			return nil, err
 		}
-		if a.Kind == contract.KindArray {
+		switch {
+		case a.Kind == contract.KindArray && a.Set:
+			if a.WriteOnly {
+				return nil, fmt.Errorf("a set is never write-only in Terraform")
+			}
+			return rschema.SetAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
+		case a.Kind == contract.KindArray:
 			return rschema.ListAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, WriteOnly: a.WriteOnly, Description: d, MarkdownDescription: d}, nil
 		}
 		return rschema.MapAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, WriteOnly: a.WriteOnly, Description: d, MarkdownDescription: d}, nil
 	}
 	return nil, fmt.Errorf("unsupported kind %s", a.Kind)
+}
+
+// defaultedAttr is a nested input with the contract's `default`: optional
+// and computed, the default planned when it is left out (so the API's
+// answer equals the plan). The engine maps a boolean, a string, an integer
+// and an empty list or set; any other default fails the provider's tests.
+func defaultedAttr(a *model.Attr, d string) (rschema.Attribute, error) {
+	switch v := a.Default.(type) {
+	case bool:
+		if a.Kind == contract.KindBool {
+			return rschema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(v), Description: d, MarkdownDescription: d}, nil
+		}
+	case string:
+		if a.Kind == contract.KindString && !a.JSON {
+			return rschema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(v), Description: d, MarkdownDescription: d, Validators: stringValidators(a)}, nil
+		}
+	case float64:
+		if a.Kind == contract.KindInteger && v == float64(int64(v)) {
+			return rschema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(int64(v)), Description: d, MarkdownDescription: d}, nil
+		}
+	case []any:
+		if a.Kind == contract.KindArray && len(v) == 0 && isNestedObject(a) {
+			nested, err := resourceAttrs(a.Elem.Attrs)
+			if err != nil {
+				return nil, err
+			}
+			et, err := elemType(a.Elem)
+			if err != nil {
+				return nil, err
+			}
+			obj := rschema.NestedAttributeObject{Attributes: nested}
+			if a.Set {
+				return rschema.SetNestedAttribute{NestedObject: obj, Optional: true, Computed: true, Default: setdefault.StaticValue(types.SetValueMust(et, []attr.Value{})), Description: d, MarkdownDescription: d}, nil
+			}
+			return rschema.ListNestedAttribute{NestedObject: obj, Optional: true, Computed: true, Default: listdefault.StaticValue(types.ListValueMust(et, []attr.Value{})), Description: d, MarkdownDescription: d}, nil
+		}
+	}
+	return nil, fmt.Errorf("the default %v of a %s is not mapped (teach internal/provider/schemas.go)", a.Default, a.Kind)
 }
 
 // ------------------------------------------------------------- data source
@@ -217,6 +284,9 @@ func dataAttr(a *model.Attr) (dschema.Attribute, error) {
 				return nil, err
 			}
 			obj := dschema.NestedAttributeObject{Attributes: nested}
+			if a.Kind == contract.KindArray && a.Set {
+				return dschema.SetNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
+			}
 			if a.Kind == contract.KindArray {
 				return dschema.ListNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
 			}
@@ -225,6 +295,9 @@ func dataAttr(a *model.Attr) (dschema.Attribute, error) {
 		et, err := elemType(a.Elem)
 		if err != nil {
 			return nil, err
+		}
+		if a.Kind == contract.KindArray && a.Set {
+			return dschema.SetAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
 		}
 		if a.Kind == contract.KindArray {
 			return dschema.ListAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
@@ -279,6 +352,9 @@ func ephemeralAttr(a *model.Attr) (eschema.Attribute, error) {
 				return nil, err
 			}
 			obj := eschema.NestedAttributeObject{Attributes: nested}
+			if a.Kind == contract.KindArray && a.Set {
+				return eschema.SetNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
+			}
 			if a.Kind == contract.KindArray {
 				return eschema.ListNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
 			}
@@ -287,6 +363,9 @@ func ephemeralAttr(a *model.Attr) (eschema.Attribute, error) {
 		et, err := elemType(a.Elem)
 		if err != nil {
 			return nil, err
+		}
+		if a.Kind == contract.KindArray && a.Set {
+			return eschema.SetAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
 		}
 		if a.Kind == contract.KindArray {
 			return eschema.ListAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Computed: a.Computed, Sensitive: a.Sensitive, Description: d, MarkdownDescription: d}, nil
@@ -341,6 +420,9 @@ func actionAttr(a *model.Attr) (aschema.Attribute, error) {
 				return nil, err
 			}
 			obj := aschema.NestedAttributeObject{Attributes: nested}
+			if a.Kind == contract.KindArray && a.Set {
+				return aschema.SetNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Description: d, MarkdownDescription: d}, nil
+			}
 			if a.Kind == contract.KindArray {
 				return aschema.ListNestedAttribute{NestedObject: obj, Required: a.Required, Optional: a.Optional, Description: d, MarkdownDescription: d}, nil
 			}
@@ -349,6 +431,9 @@ func actionAttr(a *model.Attr) (aschema.Attribute, error) {
 		et, err := elemType(a.Elem)
 		if err != nil {
 			return nil, err
+		}
+		if a.Kind == contract.KindArray && a.Set {
+			return aschema.SetAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Description: d, MarkdownDescription: d}, nil
 		}
 		if a.Kind == contract.KindArray {
 			return aschema.ListAttribute{ElementType: et, Required: a.Required, Optional: a.Optional, Description: d, MarkdownDescription: d}, nil

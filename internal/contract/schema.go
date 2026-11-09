@@ -37,6 +37,18 @@ type Schema struct {
 	// Pattern is the regular expression a string matches (examples are checked against it).
 	Pattern   string
 	WriteOnly bool
+	// JSON (`x-das-terraform-json: true`): a value of no fixed shape the
+	// provider holds as a JSON-encoded string even outside a collection, so a
+	// configuration writes it with jsonencode() and the plan compares the
+	// encoding, whatever its keys.
+	JSON bool
+	// Set (`x-das-terraform-set: true`): an array whose order means nothing
+	// (the API answers it in its own canonical order), held as a Terraform
+	// set so the plan compares it regardless of order.
+	Set bool
+	// Default is the JSON Schema `default`, when HasDefault.
+	Default    any
+	HasDefault bool
 	// Items is the element of an array.
 	Items *Schema
 	// Properties of an object, sorted by name.
@@ -128,6 +140,9 @@ func (s *Spec) schema(raw any, depth int) (*Schema, error) {
 	out.Format, _ = m["format"].(string)
 	out.Pattern, _ = m["pattern"].(string)
 	out.WriteOnly, _ = m["writeOnly"].(bool)
+	out.JSON, _ = m["x-das-terraform-json"].(bool)
+	out.Set, _ = m["x-das-terraform-set"].(bool)
+	out.Default, out.HasDefault = m["default"]
 
 	for _, key := range []string{"anyOf", "oneOf"} {
 		alts, ok := m[key].([]any)
@@ -256,7 +271,13 @@ func (s *Spec) schema(raw any, depth int) (*Schema, error) {
 		}
 		out.Kind = KindObject
 		names := make([]string, 0, len(props))
-		for n := range props {
+		for n, raw := range props {
+			// `x-das-terraform-skip: true`: a request property Terraform never
+			// sends (an edit-conflict token, an object another resource owns),
+			// left out of every attribute, whatever its own schema.
+			if pm, ok := raw.(map[string]any); ok && pm["x-das-terraform-skip"] == true {
+				continue
+			}
 			names = append(names, n)
 		}
 		sort.Strings(names)

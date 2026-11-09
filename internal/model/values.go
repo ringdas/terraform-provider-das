@@ -22,6 +22,9 @@ func (a *Attr) Type() tftypes.Type {
 	case contract.KindBool:
 		return tftypes.Bool
 	case contract.KindArray:
+		if a.Set {
+			return tftypes.Set{ElementType: a.Elem.Type()}
+		}
 		return tftypes.List{ElementType: a.Elem.Type()}
 	case contract.KindMap:
 		return tftypes.Map{ElementType: a.Elem.Type()}

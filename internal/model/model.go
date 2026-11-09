@@ -60,14 +60,27 @@ type Attr struct {
 	// JSON: a value of no fixed shape inside a list or map (Terraform has
 	// no dynamic type there), held as a JSON-encoded string `<name>_json`.
 	JSON bool
-	// SendNull: a body property the API requires but accepts as null (an
-	// email sender's Reply-To): optional in Terraform, and left out it is
-	// sent as an explicit null - never omitted, never filled by the API.
+	// Set: an array held as a Terraform set, compared regardless of order
+	// (`x-das-terraform-set`).
+	Set bool
+	// Default (when HasDefault): the value the API takes for a nested input
+	// left out; the attribute is optional and computed, and the plan holds
+	// the default, so leaving it out never drifts.
+	Default    any
+	HasDefault bool
+	// SendNull: a body property the API takes as null - one it requires (an
+	// email sender's Reply-To), or a resource's optional input its update
+	// takes as null, or its create when the update does not take it (a
+	// policy's end): optional and never computed, so left out of the
+	// configuration it is null in the plan, and sent as an explicit null to
+	// an operation that takes null (left out of one that does not: the API
+	// stores null then).
 	SendNull bool
 }
 
 // jsonInCollection turns a value of no fixed shape inside a collection
-// into a JSON-encoded string attribute.
+// (or one the contract marks `x-das-terraform-json`) into a JSON-encoded
+// string attribute.
 func jsonInCollection(a *Attr, inCollection bool) {
 	if a.Kind != contract.KindAny || !inCollection {
 		return
@@ -391,6 +404,14 @@ func buildResource(spec *contract.Spec, prefix string, def contract.ResourceDef)
 				} else {
 					changeable(a, updateBody[prop.Name])
 				}
+				// Left out, an optional input the API takes as null is null
+				// (P-110): never kept from the state as a computed value. One
+				// the update takes must take null there, or a removal plans a
+				// null the update cannot send.
+				nullable := takesNull(r.Update, prop.Name) || (prop.Schema.Nullable && !updateBody[prop.Name])
+				if !a.Required && !a.SendNull && !a.WriteOnly && a.VersionOf == "" && nullable {
+					leaveOutForNull(a)
+				}
 				r.Attrs = append(r.Attrs, a)
 			}
 		}
@@ -550,6 +571,10 @@ func paramAttr(p contract.Param) *Attr {
 		if a.Description == "" {
 			a.Description = p.Schema.Description
 		}
+		// A repeated query parameter (`?status=A&status=B`): a list of its scalar items.
+		if p.Schema.Kind == contract.KindArray && p.Schema.Items != nil {
+			a.Elem = &Attr{Kind: p.Schema.Items.Kind, Enum: p.Schema.Items.Enum, Pattern: p.Schema.Items.Pattern}
+		}
 	}
 	return a
 }
@@ -565,8 +590,7 @@ func bodyAttrs(prop contract.Property, requiredHere, resource bool) ([]*Attr, er
 	switch {
 	case prop.Required && requiredHere && prop.Schema.Nullable:
 		a.Optional = true
-		a.SendNull = true
-		a.Description = strings.TrimSuffix(strings.TrimSpace(a.Description), ".") + ". Leave it out for null."
+		leaveOutForNull(a)
 	case prop.Required && requiredHere:
 		a.Required = true
 	default:
@@ -596,14 +620,28 @@ func bodyAttrs(prop contract.Property, requiredHere, resource bool) ([]*Attr, er
 	return []*Attr{a, version}, nil
 }
 
+func leaveOutForNull(a *Attr) {
+	a.SendNull = true
+	a.Description = strings.TrimSuffix(strings.TrimSpace(a.Description), ".") + ". Leave it out for null."
+}
+
+// takesNull: the operation's body takes the property as null.
+func takesNull(op *contract.Operation, wire string) bool {
+	if op == nil || op.Body == nil {
+		return false
+	}
+	p := op.Body.Property(wire)
+	return p != nil && p.Schema.Nullable
+}
+
 func inputAttr(prop contract.Property) (*Attr, error) {
 	return inputAttrIn(prop, false)
 }
 
 func inputAttrIn(prop contract.Property, inCollection bool) (*Attr, error) {
 	s := prop.Schema
-	a := &Attr{Name: SnakeCase(prop.Name), Wire: prop.Name, Kind: s.Kind, Enum: s.Enum, Pattern: s.Pattern, Description: s.Description}
-	jsonInCollection(a, inCollection)
+	a := &Attr{Name: SnakeCase(prop.Name), Wire: prop.Name, Kind: s.Kind, Enum: s.Enum, Pattern: s.Pattern, Description: s.Description, Set: s.Set && s.Kind == contract.KindArray}
+	jsonInCollection(a, inCollection || s.JSON)
 	switch s.Kind {
 	case contract.KindArray:
 		elem, err := inputAttrIn(contract.Property{Name: "", Schema: s.Items, Required: true}, true)
@@ -626,9 +664,14 @@ func inputAttrIn(prop contract.Property, inCollection bool) (*Attr, error) {
 				return nil, err
 			}
 			na.Source = SourceBody
-			if p.Required {
+			switch {
+			case p.Required:
 				na.Required = true
-			} else {
+			case p.Schema.HasDefault:
+				// Nested only: a top-level input echoed by the read is optional and computed already (mergeResponse).
+				na.Optional, na.Computed = true, true
+				na.Default, na.HasDefault = p.Schema.Default, true
+			default:
 				na.Optional = true
 			}
 			a.Attrs = append(a.Attrs, na)
@@ -643,8 +686,8 @@ func computedAttr(prop contract.Property) (*Attr, error) {
 
 func computedAttrIn(prop contract.Property, inCollection bool) (*Attr, error) {
 	s := prop.Schema
-	a := &Attr{Name: SnakeCase(prop.Name), Wire: prop.Name, Kind: s.Kind, Enum: s.Enum, Description: s.Description, Computed: true}
-	jsonInCollection(a, inCollection)
+	a := &Attr{Name: SnakeCase(prop.Name), Wire: prop.Name, Kind: s.Kind, Enum: s.Enum, Description: s.Description, Computed: true, Set: s.Set && s.Kind == contract.KindArray}
+	jsonInCollection(a, inCollection || s.JSON)
 	switch s.Kind {
 	case contract.KindArray, contract.KindMap:
 		inner := s.Items

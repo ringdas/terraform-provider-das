@@ -8,6 +8,7 @@ package docgen
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -114,9 +115,52 @@ func resourcePage(r *model.Resource) string {
 func dataPage(d *model.DataSource) string {
 	var b strings.Builder
 	frontmatter(&b, short(d.TypeName)+" Data Source - das", subcategory(d.Spec), d.Description)
-	fmt.Fprintf(&b, "# %s (Data Source)\n\n%s\n\nAPI: `%s`.\n\n## Example Usage\n\n```terraform\n%s```\n\n", d.TypeName, d.Description, d.Op.Ref, example("data", d.TypeName, d.Attrs))
+	fmt.Fprintf(&b, "# %s (Data Source)\n\n%s\n\nAPI: `%s`.\n\n## Example Usage\n\n```terraform\n%s```\n\n", d.TypeName, d.Description, d.Op.Ref, example("data", d.TypeName, exampleInputs(d)))
 	schemaSection(&b, d.Attrs)
 	return b.String()
+}
+
+// exampleInputs are a data source's inputs as its example sets them: a query
+// parameter the API requires stays optional in Terraform (the model makes
+// every query parameter optional), yet a read without it is a 400, so the
+// example sets it, to the first alternative of its pattern when it has them.
+func exampleInputs(d *model.DataSource) []*model.Attr {
+	required := map[string]*contract.Schema{}
+	for _, p := range d.Op.QueryParams {
+		if p.Required {
+			required[p.Name] = p.Schema
+		}
+	}
+	if len(required) == 0 {
+		return d.Attrs
+	}
+	out := make([]*model.Attr, len(d.Attrs))
+	for i, a := range d.Attrs {
+		s, ok := required[a.Wire]
+		if a.Source != model.SourceQuery || !ok {
+			out[i] = a
+			continue
+		}
+		c := *a
+		c.Required = true
+		if len(c.Enum) == 0 && s != nil {
+			c.Enum = patternAlternatives(s.Pattern)
+		}
+		out[i] = &c
+	}
+	return out
+}
+
+var alternativesRe = regexp.MustCompile(`^\^\(([a-z0-9_]+(?:\|[a-z0-9_]+)*)\)\$$`)
+
+// patternAlternatives reads a pattern of plain words, `^(string|map)$`, as
+// its words; nil for any other pattern.
+func patternAlternatives(pattern string) []string {
+	m := alternativesRe.FindStringSubmatch(pattern)
+	if m == nil {
+		return nil
+	}
+	return strings.Split(m[1], "|")
 }
 
 func actionPage(a *model.Action) string {
@@ -304,22 +348,40 @@ func schemaSection(b *strings.Builder, attrs []*model.Attr) {
 		fmt.Fprintf(b, "### %s\n\n", g.title)
 		for _, a := range list {
 			fmt.Fprintf(b, "- `%s` (%s) %s\n", a.Name, typeLabel(a), provider.Description(a))
-			if a.Kind == contract.KindObject || (a.Elem != nil && a.Elem.Kind == contract.KindObject) {
+			if hasNested(a) {
 				nested = append(nested, a)
 			}
 		}
 		b.WriteString("\n")
 	}
 	for _, a := range nested {
-		inner := a.Attrs
-		if a.Elem != nil {
-			inner = a.Elem.Attrs
+		nestedSection(b, []string{a.Name}, a)
+	}
+}
+
+func hasNested(a *model.Attr) bool {
+	return a.Kind == contract.KindObject || (a.Elem != nil && a.Elem.Kind == contract.KindObject)
+}
+
+// nestedSection documents an object's attributes, then each nested object
+// inside it at every depth, anchored as tfplugindocs does
+// (`nestedatt--rows--cells`).
+func nestedSection(b *strings.Builder, path []string, a *model.Attr) {
+	inner := a.Attrs
+	if a.Elem != nil {
+		inner = a.Elem.Attrs
+	}
+	fmt.Fprintf(b, "<a id=\"nestedatt--%s\"></a>\n### Nested Schema for `%s`\n\n", strings.Join(path, "--"), strings.Join(path, "."))
+	var deeper []*model.Attr
+	for _, na := range inner {
+		fmt.Fprintf(b, "- `%s` (%s) %s\n", na.Name, typeLabel(na), provider.Description(na))
+		if hasNested(na) {
+			deeper = append(deeper, na)
 		}
-		fmt.Fprintf(b, "<a id=\"nestedatt--%s\"></a>\n### Nested Schema for `%s`\n\n", a.Name, a.Name)
-		for _, na := range inner {
-			fmt.Fprintf(b, "- `%s` (%s) %s\n", na.Name, typeLabel(na), provider.Description(na))
-		}
-		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	for _, na := range deeper {
+		nestedSection(b, append(append([]string{}, path...), na.Name), na)
 	}
 }
 
@@ -339,10 +401,14 @@ func typeLabel(a *model.Attr) string {
 	case contract.KindObject:
 		t = "Attributes"
 	case contract.KindArray:
+		collection := "List"
+		if a.Set {
+			collection = "Set"
+		}
 		if a.Elem.Kind == contract.KindObject {
-			t = "Attributes List"
+			t = "Attributes " + collection
 		} else {
-			t = "List of " + typeLabel(a.Elem)
+			t = collection + " of " + typeLabel(a.Elem)
 		}
 	case contract.KindMap:
 		if a.Elem.Kind == contract.KindObject {

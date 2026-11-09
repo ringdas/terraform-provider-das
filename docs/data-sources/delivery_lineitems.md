@@ -44,3 +44,9 @@ data "das_delivery_lineitems" "example" {
 - `type` (String) Guaranteed volume, a share of voice, or house inventory. One of `STANDARD`, `SPONSORSHIP`, `HOUSE`.
 - `updated_at` (String) Last change, ISO-8601 UTC.
 
+<a id="nestedatt--items--budget"></a>
+### Nested Schema for `items.budget`
+
+- `amount` (String) Decimal string, e.g. "1250.00".
+- `currency` (String) ISO-4217 code, upper-case.
+

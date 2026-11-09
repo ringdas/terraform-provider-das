@@ -50,6 +50,13 @@ data "das_identity" "example" {
 - `sign_in_url` (String) The sign-in page (Hosted UI) people are sent to.
 - `user_pool_id` (String) The pool id, e.g. `eu-central-1_AbC123`.
 
+<a id="nestedatt--pool--clients"></a>
+### Nested Schema for `pool.clients`
+
+- `client_id` (String) The app client id.
+- `kind` (String) The web apps (redirect URLs follow the Networks) or the das CLI (loopback redirects). One of `WEB`, `CLI`.
+- `name` (String) Its name in the pool.
+
 <a id="nestedatt--redirects"></a>
 ### Nested Schema for `redirects`
 

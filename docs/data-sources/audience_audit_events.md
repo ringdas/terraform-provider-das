@@ -58,3 +58,11 @@ data "das_audience_audit_events" "example" {
 - `resource_type` (String) The kind of resource, e.g. `api-key`.
 - `seq` (Number, integer) Its position in the chain, from 1 (the genesis) without gaps; null for a row written before the chain (sealed by the genesis).
 
+<a id="nestedatt--items--changes"></a>
+### Nested Schema for `items.changes`
+
+- `fields` (Map of String) The changed fields by name: `{ before, after }` (a CREATE's before and a DELETE's after are null; instants ISO-8601, decimals as strings), or `{ redacted: true, changed }` for a secret, a hash or a secret reference, whose value is never recorded.
+- `id` (String) The row's id.
+- `model` (String) The model (table), e.g. `ApiKey`.
+- `op` (String) What happened to the row. One of `CREATE`, `UPDATE`, `DELETE`.
+

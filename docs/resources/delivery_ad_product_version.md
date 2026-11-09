@@ -56,6 +56,14 @@ resource "das_delivery_ad_product_version" "example" {
 - `goals` (List of String) What a campaign of the ad product may aim for: 1-7 distinct goals.
 - `steps` (Attributes List) The process that delivers a campaign, in order: 1-20 steps with distinct keys.
 
+<a id="nestedatt--definition--steps"></a>
+### Nested Schema for `definition.steps`
+
+- `key` (String) Key of the step, kebab-case, 2-60 characters, unique in the definition.
+- `kind` (String) `WORK` does the work; `APPROVAL` approves the work before it. One of `WORK`, `APPROVAL`.
+- `name` (String) Name of the step, 1-200 characters.
+- `role` (String) The Network role that performs the step (GET /api/roles of the Organisation API). An `APPROVAL` step takes only a role that may approve: APPROVER. A `WORK` step takes only a role that may write: NETWORK_ADMIN, OPERATOR, checked when a version is added; a version added before that check may name another role there. One of `NETWORK_ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`, `AUDITOR`.
+
 ## Import
 
 ```terraform

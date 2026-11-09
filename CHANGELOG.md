@@ -2,6 +2,54 @@
 
 All notable changes to `terraform-provider-das`. The Release PR writes each section from the `.changeset/*.md` files (docs/engineering/release-process.md); do not edit it by hand.
 
+## [0.4.0] - 2026-11-06
+
+### Added
+
+- **DAS Policies in DAS Tag Manager: the model, the API, the panel, the CLI
+  and the Terraform provider** (feature `policies`, off by default). Tag
+  Manager keeps a Network's policies in its own database (migration
+  `0006_das_policies`, RLS on every table) under `/api/policy-*` and
+  `/api/policies`. A Network admin writes platforms, policy types (contexts
+  `SLOT`, `PAGE`; configuration types with fields in the field language of
+  DAS Policies), target dimensions with weights and site-platform rules;
+  operators write labels, policies, configurations, value catalogues and
+  mappings. A policy is saved whole in one mutation and one audit row with its
+  labels, inventory (paths `{site}/{area}/{slot}`, `*` for a whole part), target
+  and ordered attachments with sub-targets; it is archived, restored,
+  duplicated and listed with filters. Races answer 400 or 409, never 500 (409
+  `EDIT_CONFLICT`, 409 `ARCHIVED`). `@das/tag-manager/fields` exports the field
+  language and the inventory path functions.
+
+  **The Policies panel.** Policy types with their policies and configurations
+  on `ListScreen`, drawers that edit in place, Focus Shell editors for a
+  policy (inventory, target, attachments) and a configuration (a form from its
+  type's fields, or JSON), a policy type creator whose review blocks a breaking
+  save, and Settings › Policies for site platforms, catalogues, mappings and
+  target dimensions.
+
+  **The CLI and Terraform.** `das tag-manager` gains the policy commands; the
+  provider gains `das_tag_manager_policy_*` resources and data sources and the
+  action `policy_duplicate`. Two changes of behaviour for every resource: an
+  optional input its create or update takes as null is planned to null when
+  removed from the `.tf` (no longer kept from the state), and the registry docs
+  document nested attributes at every depth.
+
+  **Shared.** `@das/platform`: the feature `policies` and its scopes, the
+  problem codes `ARCHIVED` and `EDIT_CONFLICT`, a field error's `code` and
+  `ref`, and test servers on 127.0.0.1 only (`listenOnLoopback`,
+  `serveForTest`). `AppFrame` sets the locale en-GB for every product.
+
+  **The kit.** `DetailView` is the one detail beside a list (Delivery's and the
+  Organization console's drawers use it; `DetailHeader` is gone). New:
+  `ReorderList`, `TokenPicker`, `TreePicker`, `TargetConditionBuilder`,
+  `SegmentedChoice`, `MarkToggle`, `TabStrip`, `ModuleNav`, `FailureCallout`,
+  `EditDialog`, `DetailSection`, `useDetailHold`, `ShortcutPause`,
+  `LeaveGuardProvider`; `ListScreen`, `ComboBox`, `FocusShell`, `useFormDraft`
+  and `ConfirmDialog` gain options. `NumberField` refuses a value outside its
+  bounds with the reason instead of moving it; a module of a feature that is
+  off is in neither the navigation nor the palette.
+
 ## [0.3.0] - 2026-10-31
 
 ### Added

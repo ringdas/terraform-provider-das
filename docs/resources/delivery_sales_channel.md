@@ -34,7 +34,7 @@ resource "das_delivery_sales_channel" "example" {
 
 - `ad_product_ids` (List of String) The ad products the channel offers, `adp_<ULID>` of this Network: 0-200 distinct ids. A key of the channel sees and orders only those that are `ENABLED`.
 - `api_key_ids` (List of String) The API keys of this Network that sell through the channel, `key_<ULID>` (GET /api/network/api-keys of the Organisation API): 0-20 distinct ids, each linked to one channel at most. The Organisation API is not asked: an id of no key links nothing.
-- `description` (String) What the channel is, up to 2000 characters.
+- `description` (String) What the channel is, up to 2000 characters. Leave it out for null.
 - `status` (String) `ENABLED` to sell through the channel, `DISABLED` to stop: its keys then see no ad product and create no order. One of `ENABLED`, `DISABLED`. Applied after create, by an update.
 
 ### Read-Only

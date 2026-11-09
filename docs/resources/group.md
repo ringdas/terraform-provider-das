@@ -28,7 +28,7 @@ resource "das_group" "example" {
 ### Optional
 
 - `description` (String) What the group is for (default empty).
-- `external_id` (String) The identity provider's group to map, or null.
+- `external_id` (String) The identity provider's group to map, or null. Leave it out for null.
 
 ### Read-Only
 

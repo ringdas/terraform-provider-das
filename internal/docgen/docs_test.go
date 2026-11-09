@@ -130,3 +130,26 @@ func checkPatterns(t *testing.T, at string, a *model.Attr, v any) {
 		}
 	}
 }
+
+// Nested attributes are documented at every depth, anchored as tfplugindocs
+// does: a mapping's cells sit inside its rows.
+func TestNestedSchemasAtEveryDepth(t *testing.T) {
+	m, err := specs.Model()
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := docgen.Generate(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for page, want := range map[string][]string{
+		"resources/tag_manager_policy_mapping.md": {"<a id=\"nestedatt--rows--cells\"></a>\n### Nested Schema for `rows.cells`\n", "- `to` (String)", "- `value_json` (String)"},
+		"resources/tag_manager_policy.md":         {"<a id=\"nestedatt--attachments--target\"></a>\n", "<a id=\"nestedatt--attachments--inventory\"></a>\n"},
+	} {
+		for _, w := range want {
+			if !strings.Contains(docs[page], w) {
+				t.Errorf("docs/%s lacks %q", page, w)
+			}
+		}
+	}
+}

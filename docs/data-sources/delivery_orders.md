@@ -51,3 +51,20 @@ data "das_delivery_orders" "example" {
 - `steps` (Attributes List) Every step of the pinned version, in order, with where each stands.
 - `updated_at` (String) Last change, ISO-8601 UTC.
 
+<a id="nestedatt--items--current_step"></a>
+### Nested Schema for `items.current_step`
+
+- `key` (String) Key of the step in the pinned version.
+- `kind` (String) `WORK`: mark it done (POST .../step-completions); `APPROVAL`: approve or reject (POST .../approvals). One of `WORK`, `APPROVAL`.
+- `name` (String) Name of the step.
+- `role` (String) The Network role that takes the step. One of `NETWORK_ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`, `AUDITOR`.
+
+<a id="nestedatt--items--steps"></a>
+### Nested Schema for `items.steps`
+
+- `key` (String) Key of the step in the pinned version.
+- `kind` (String) `WORK` does the work; `APPROVAL` approves the work before it. One of `WORK`, `APPROVAL`.
+- `name` (String) Name of the step.
+- `role` (String) The Network role that takes the step. One of `NETWORK_ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`, `AUDITOR`.
+- `state` (String) `DONE` behind the order, `CURRENT` where it waits, `PENDING` ahead of it (or never reached, when cancelled). One of `DONE`, `CURRENT`, `PENDING`.
+

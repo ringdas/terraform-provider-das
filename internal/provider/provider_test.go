@@ -119,3 +119,68 @@ func TestNoAttributeLeaksASecretIntoState(t *testing.T) {
 		}
 	}
 }
+
+// An optional input of a resource the API takes as null (in its update,
+// or in its create when the update does not take it) is null when left
+// out (P-110): optional, sent as null, never computed - so a value removed
+// from the configuration plans `-> null` instead of staying. An optional input the API never takes as null stays
+// optional and computed: left out, it keeps the API's value.
+func TestALeftOutNullableInputIsNull(t *testing.T) {
+	m, err := specs.Model()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The update decides when it takes the input: a null it refuses could
+	// never be sent after a removal. Otherwise the create decides.
+	takesNull := func(r *model.Resource, wire string) bool {
+		for _, op := range []string{r.Def.Update, r.Def.Create} {
+			if op == "" {
+				continue
+			}
+			o, _ := r.Spec.Operation(op)
+			if p := o.Body.Property(wire); p != nil {
+				return p.Schema.Nullable
+			}
+		}
+		return false
+	}
+	for _, r := range m.Resources {
+		for _, a := range r.Attrs {
+			if a.Source != model.SourceBody || a.Required || a.UpdateOnly || a.WriteOnly || a.VersionOf != "" {
+				continue
+			}
+			nullable := takesNull(r, a.Wire)
+			if nullable && (!a.Optional || !a.SendNull || a.Computed) {
+				t.Errorf("%s.%s: the API takes it as null, so it is optional, sent as null and never computed", r.TypeName, a.Name)
+			}
+			if !nullable && a.SendNull {
+				t.Errorf("%s.%s: the API never takes it as null, yet it is sent as null", r.TypeName, a.Name)
+			}
+		}
+	}
+	for _, c := range []struct {
+		resource, attr     string
+		sendNull, computed bool
+	}{
+		{"das_tag_manager_policy", "end_at", true, false},
+		{"das_tag_manager_policy", "description", true, false},
+		// Nullable only in the update: the create leaves it out.
+		{"das_tag_manager_policy_type", "description", true, false},
+		{"das_identity_provider", "oidc_issuer", true, false},
+		// Optional, never null: the API's default when left out.
+		{"das_tag_manager_policy", "status", false, true},
+		// Its create schema has no type: not nullable for the provider (P-110).
+		{"das_tag_manager_policy_mapping", "cell", false, true},
+	} {
+		var r *model.Resource
+		for _, x := range m.Resources {
+			if x.TypeName == c.resource {
+				r = x
+			}
+		}
+		a := model.Find(r.Attrs, c.attr)
+		if a == nil || !a.Optional || a.SendNull != c.sendNull || a.Computed != c.computed {
+			t.Errorf("%s.%s: want optional, SendNull %v, Computed %v; got %+v", c.resource, c.attr, c.sendNull, c.computed, a)
+		}
+	}
+}

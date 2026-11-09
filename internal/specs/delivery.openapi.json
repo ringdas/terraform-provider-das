@@ -1769,6 +1769,8 @@
               "ALREADY_EXISTS",
               "LAST_OWNER",
               "IN_USE",
+              "ARCHIVED",
+              "EDIT_CONFLICT",
               "IDENTITY_PROVIDER_EXISTS",
               "LOCKOUT",
               "STEP_NOT_CURRENT",

@@ -76,11 +76,19 @@ func request(spec *contract.Spec, op *contract.Operation, attrs []*model.Attr, v
 			if err != nil {
 				return req, fmt.Errorf("%s: %w", a.Name, err)
 			}
-			if j != nil {
+			if list, ok := j.([]any); ok {
+				for _, item := range list {
+					query.Add(a.Wire, fmt.Sprint(item))
+				}
+			} else if j != nil {
 				query.Set(a.Wire, fmt.Sprint(j))
 			}
 		case model.SourceBody:
-			if body == nil || op.Body.Property(a.Wire) == nil || (include != nil && !include(a)) {
+			if body == nil {
+				continue
+			}
+			prop := op.Body.Property(a.Wire)
+			if prop == nil || (include != nil && !include(a)) {
 				continue
 			}
 			src := vals
@@ -98,7 +106,9 @@ func request(spec *contract.Spec, op *contract.Operation, attrs []*model.Attr, v
 			if err != nil {
 				return req, fmt.Errorf("%s: %w", a.Name, err)
 			}
-			if j != nil || a.SendNull {
+			// Null only where this operation takes it: a create that does not
+			// is left without the property, and the API stores null.
+			if j != nil || (a.SendNull && prop.Schema.Nullable) {
 				body[a.Wire] = j
 			}
 		}

@@ -30,7 +30,7 @@ resource "das_delivery_ad_product" "example" {
 
 ### Optional
 
-- `description` (String) What the ad product is for, up to 2000 characters.
+- `description` (String) What the ad product is for, up to 2000 characters. Leave it out for null.
 - `status` (String) `ENABLED` to sell the ad product (it needs a version), `DISABLED` to stop. One of `ENABLED`, `DISABLED`. Applied after create, by an update.
 
 ### Read-Only

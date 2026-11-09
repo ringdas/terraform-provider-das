@@ -34,3 +34,10 @@ data "das_roles" "example" {
 - `rank` (String) The coarse rank the access classes compare. One of `VIEWER`, `OPERATOR`, `ADMIN`.
 - `scopes` (List of String) The scopes it grants (a `*` resource covers every resource of the product).
 
+<a id="nestedatt--items--permissions"></a>
+### Nested Schema for `items.permissions`
+
+- `actions` (List of String) The actions given: read, write, admin, approve.
+- `description` (String) What the permission gives.
+- `scope` (String) `das:<product>:<resource>`.
+

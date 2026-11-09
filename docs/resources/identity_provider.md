@@ -40,12 +40,12 @@ resource "das_identity_provider" "example" {
 - `email_attribute` (String) The provider's attribute carrying the email (default: SAML's emailaddress claim, OIDC's `email`).
 - `email_domains` (List of String) Email domains that go straight to this provider (default none); a domain belongs to one provider.
 - `enabled` (Boolean) Offered on the sign-in page (default true).
-- `groups_attribute` (String) The provider's attribute carrying the groups, e.g. Entra's groups claim.
-- `metadata_url` (String) SAML: the federation metadata URL (https).
-- `oidc_client_id` (String) OIDC: the client id at the provider.
+- `groups_attribute` (String) The provider's attribute carrying the groups, e.g. Entra's groups claim. Leave it out for null.
+- `metadata_url` (String) SAML: the federation metadata URL (https). Leave it out for null.
+- `oidc_client_id` (String) OIDC: the client id at the provider. Leave it out for null.
 - `oidc_client_secret_wo` (String, Sensitive, Write-only) OIDC: the client secret at the provider; DAS keeps it in the installation's secret store and never returns it. Write-only: never stored in Terraform state (Terraform >= 1.11); change `oidc_client_secret_wo_version` to send a new value.
 - `oidc_client_secret_wo_version` (Number, integer) Any number; change it to send `oidc_client_secret_wo` again (a rotation).
-- `oidc_issuer` (String) OIDC: the issuer (https).
+- `oidc_issuer` (String) OIDC: the issuer (https). Leave it out for null.
 
 ### Read-Only
 
