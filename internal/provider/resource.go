@@ -92,7 +92,8 @@ func (r *genericResource) stateFrom(answer any, base values, preferBase bool) (t
 		case a.Name == "id":
 			continue
 		case a.Source == model.SourcePath && known,
-			preferBase && (a.Required || a.Optional) && known,
+			// A part the API fills (a nested computed id) comes from the answer.
+			preferBase && (a.Required || a.Optional) && known && baseVal.IsFullyKnown(),
 			!present && known:
 			vals[a.Name] = baseVal
 			continue
@@ -400,8 +401,12 @@ func (r *genericResource) ModifyPlan(_ context.Context, req resource.ModifyPlanR
 		}
 		if a.Immutable {
 			if pv.IsKnown() {
-				resp.Diagnostics.AddAttributeError(path.Root(a.Name), "Cannot change "+a.Name,
-					fmt.Sprintf("%s.%s cannot change: the API offers no update of it and never deletes a %s, so it cannot be replaced either.", r.m.TypeName, a.Name, strings.TrimPrefix(r.m.TypeName, "das_")))
+				detail := fmt.Sprintf("%s.%s cannot change: the API offers no update of it and never deletes a %s, so it cannot be replaced either.", r.m.TypeName, a.Name, strings.TrimPrefix(r.m.TypeName, "das_"))
+				if r.m.Def.ChangeInstead != "" {
+					// What to do instead, as the surface says it (a mapping: a new one with a new key).
+					detail += " " + r.m.Def.ChangeInstead
+				}
+				resp.Diagnostics.AddAttributeError(path.Root(a.Name), "Cannot change "+a.Name, detail)
 			}
 			continue
 		}

@@ -2,12 +2,12 @@
 page_title: "tag_manager_policy_option_sources Data Source - das"
 subcategory: "DAS Tag Manager"
 description: |-
-  The sources a field of a policy type may read in `optionsSource` (the feature `policies`), for one `kind` of field: `string` the Network's catalogues (`catalogue.<key>`), `map` its mappings (`mapping.<key>`), each with its count and its first three values. Set `kind`: the API requires it (400 at read otherwise).
+  The sources a field of a policy type may read in `optionsSource` (the feature `policies`), for one `kind` of field: `string` the Network's catalogues (`catalogue.<key>`), `map` its mappings (`mapping.<key>`), never an archived one, each with its count and its first three values. Set `kind`: the API requires it (400 at read otherwise).
 ---
 
 # das_tag_manager_policy_option_sources (Data Source)
 
-The sources a field of a policy type may read in `optionsSource` (the feature `policies`), for one `kind` of field: `string` the Network's catalogues (`catalogue.<key>`), `map` its mappings (`mapping.<key>`), each with its count and its first three values. Set `kind`: the API requires it (400 at read otherwise).
+The sources a field of a policy type may read in `optionsSource` (the feature `policies`), for one `kind` of field: `string` the Network's catalogues (`catalogue.<key>`), `map` its mappings (`mapping.<key>`), never an archived one, each with its count and its first three values. Set `kind`: the API requires it (400 at read otherwise).
 
 API: `GET /api/policy-option-sources`.
 
@@ -32,8 +32,8 @@ data "das_tag_manager_policy_option_sources" "example" {
 <a id="nestedatt--items"></a>
 ### Nested Schema for `items`
 
-- `count` (Number, integer) How many values it holds: a catalogue's values, a mapping's rows.
+- `count` (Number, integer) How many values it holds: a catalogue's active values, a mapping's rows.
 - `key` (String) What a field names it by in `optionsSource`: `catalogue.<key>` or `mapping.<key>`.
 - `label` (String) Its name: the catalogue's or mapping's label.
-- `sample` (List of String) Its first three values (a mapping's: its rows' keys), in the source's own order.
+- `sample` (List of String) Its first three values (a mapping's: its rows' keys, by text), in the source's own order.
 

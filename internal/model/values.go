@@ -270,6 +270,9 @@ func FromValue(a *Attr, v tftypes.Value) (any, error) {
 			if na.Source == SourceNone && na.Computed && !na.Optional && !na.Required {
 				continue // computed only: never sent
 			}
+			if na.Computed && !m[na.Name].IsKnown() {
+				continue // left to the API (a catalogue value's id): known after apply
+			}
 			j, err := FromValue(na, m[na.Name])
 			if err != nil {
 				return nil, err

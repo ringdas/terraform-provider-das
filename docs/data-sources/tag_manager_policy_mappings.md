@@ -2,12 +2,12 @@
 page_title: "tag_manager_policy_mappings Data Source - das"
 subcategory: "DAS Tag Manager"
 description: |-
-  Every tag_manager_policy_mapping, all pages: a mapping between two value catalogues of the credential's Network (the feature `policies`), written by an operator: for each value of `from` (a row's `key`) the values of `to` it goes to (its `cells`).
+  Every tag_manager_policy_mapping, all pages: a mapping between two value catalogues of the credential's Network (the feature `policies`), written by an operator: for each value of `from` (a row's `key`) the values of `to` it goes to (its `cells`), each value by its text (stored by the value's id, so a value whose text changes stays in the rows).
 ---
 
 # das_tag_manager_policy_mappings (Data Source)
 
-Every tag_manager_policy_mapping, all pages: a mapping between two value catalogues of the credential's Network (the feature `policies`), written by an operator: for each value of `from` (a row's `key`) the values of `to` it goes to (its `cells`).
+Every tag_manager_policy_mapping, all pages: a mapping between two value catalogues of the credential's Network (the feature `policies`), written by an operator: for each value of `from` (a row's `key`) the values of `to` it goes to (its `cells`), each value by its text (stored by the value's id, so a value whose text changes stays in the rows).
 
 API: `GET /api/policy-mappings`.
 
@@ -20,6 +20,10 @@ data "das_tag_manager_policy_mappings" "example" {
 
 ## Schema
 
+### Optional
+
+- `include_archived` (Boolean) `true`: the archived ones too, each with its `archivedAt`. `false` or left out: only those not archived.
+
 ### Read-Only
 
 - `items` (Attributes List) Every item, all pages followed.
@@ -27,6 +31,7 @@ data "das_tag_manager_policy_mappings" "example" {
 <a id="nestedatt--items"></a>
 ### Nested Schema for `items`
 
+- `archived_at` (String) When it was archived, ISO-8601 UTC; null while it is not.
 - `cell_json` (String) The type of each cell's value in the field language of DAS Policies (`{ kind, min?, max?, unit?, options?, ... }`); null: a cell holds no value. Never changed. JSON-encoded (`jsondecode()` it).
 - `created_at` (String) When it was created, ISO-8601 UTC.
 - `from` (String) The catalogue whose values are the rows' keys, by its key; never changed.
@@ -41,11 +46,11 @@ data "das_tag_manager_policy_mappings" "example" {
 ### Nested Schema for `items.rows`
 
 - `cells` (Attributes List) The values of `to` the key goes to, in the order written.
-- `key` (String) A value of the `from` catalogue.
+- `key` (String) A value of the `from` catalogue, by its text as it is now (it may be archived).
 
 <a id="nestedatt--items--rows--cells"></a>
 ### Nested Schema for `items.rows.cells`
 
-- `to` (String) A value of the `to` catalogue.
+- `to` (String) A value of the `to` catalogue, by its text as it is now (it may be archived).
 - `value_json` (String) The cell's value, of the mapping's `cell` type; absent when the mapping has no `cell`. JSON-encoded (`jsondecode()` it).
 

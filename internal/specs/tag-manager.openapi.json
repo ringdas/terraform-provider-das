@@ -82,11 +82,10 @@
       },
       {
         "name": "policy_catalogue",
-        "description": "A value catalogue of the credential's Network (the feature `policies`), written by an operator: the values fields of policy types and target dimensions read as `catalogue.<key>`, and the sides of mappings. Its key never changes. `values` is a list kept in your order and replaced whole, each value a plain text unique in the catalogue with an optional `label`. A value removed from `values` leaves the mappings on the catalogue with it (the rows it keys, the cells it is the `to` of, a row left without cells): their next plan shows that drift, to settle in their `rows`. A value a configuration, a policy's target or a field's `default` of a policy type names (any of them not archived) is not removed (409 IN_USE): apply them without it first, then the catalogue (two applies). Destroy deletes it, refused while a policy type that is not archived reads it in a field, a target dimension reads it in its input or a mapping has it as `from` or `to`.",
+        "description": "A value catalogue of the credential's Network (the feature `policies`), written by an operator: the values fields of policy types and target dimensions offer as `catalogue.<key>`, and the sides of mappings. Its key never changes. `values` is the list of active values, kept in your order and replaced whole, each a plain text unique in the catalogue (archived values included) with an optional `label` and its `id`, which the API gives it: write a value's `id` (from the state after the first apply) to change its text and keep it, so the mappings' rows follow it; a value without `id` is the one with that text, or a new one. Any change of the catalogue, its label included, plans every `id` you did not write as known after apply. A value left out is archived: `archived_values` lists it, the mappings' rows keep it, and writing its text again restores it. Configurations, policies and defaults hold their own copies of values: a change here changes none of them. Destroy archives the catalogue (P11), refused while a policy type that is not archived reads it in a field, a target dimension reads it in its input or a mapping that is not archived has it as `from` or `to`; its key stays taken, so a new catalogue with it is 409: import the archived one and set `archived = false` to restore it.",
         "create": "POST /api/policy-catalogues",
         "read": "GET /api/policy-catalogues/{catalogueId}",
         "update": "PATCH /api/policy-catalogues/{catalogueId}",
-        "delete": "DELETE /api/policy-catalogues/{catalogueId}",
         "list": "GET /api/policy-catalogues",
         "example": {
           "key": "size_consumers",
@@ -100,15 +99,21 @@
               "label": "Prebid"
             }
           ]
+        },
+        "destroy": {
+          "via": "update",
+          "body": {
+            "archived": true
+          },
+          "reason": "A catalogue is archivable (P11): it is never deleted, so destroy archives it (refused while a policy type, a target dimension or a mapping that is not archived reads it)."
         }
       },
       {
         "name": "policy_mapping",
-        "description": "A mapping between two value catalogues of the credential's Network (the feature `policies`), written by an operator: for each value of `from` (a row's `key`) the values of `to` it goes to (its `cells`). Its key, `from`, `to` and `cell` never change: a change replaces it (reference `das_tag_manager_policy_catalogue.<name>.key` so the catalogues are created first). `cell` is the type of a cell's value in the field language of DAS Policies; without it a cell holds no value, with it each cell's `value_json` is one `jsonencode()` of its value. `rows` and their `cells` are lists kept in your order and replaced whole. A mapping is the template a `map` field of a configuration starts from: its rows change no configuration. Destroy deletes it, refused while a policy type that is not archived reads it in a field; to change `cell`, create a new mapping with a new key, point the type's field at it, then remove the old one. A mapping without a cell type is such a new mapping too: removing `cell` from the Terraform configuration (`.tf`) never turns this mapping into one.",
+        "description": "A mapping between two value catalogues of the credential's Network (the feature `policies`), written by an operator: for each value of `from` (a row's `key`) the values of `to` it goes to (its `cells`), each value by its text (stored by the value's id, so a value whose text changes stays in the rows). Its key, `from`, `to` and `cell` never change, and a mapping is never deleted, so a change of one is an error at plan (reference `das_tag_manager_policy_catalogue.<name>.key` so the catalogues are created first). `cell` is the type of a cell's value in the field language of DAS Policies; without it a cell holds no value, with it each cell's `value_json` is one `jsonencode()` of its value. `rows` and their `cells` are lists kept in your order and replaced whole. A mapping is the template a `map` field of a configuration starts from: its rows change no configuration. Destroy archives it (P11), refused while a policy type that is not archived reads it in a field; its key stays taken, so a new mapping with it is 409: import the archived one and set `archived = false` to restore it. A mapping without a cell type is a new mapping too: removing `cell` from the Terraform configuration (`.tf`) never turns this mapping into one.",
         "create": "POST /api/policy-mappings",
         "read": "GET /api/policy-mappings/{mappingId}",
         "update": "PATCH /api/policy-mappings/{mappingId}",
-        "delete": "DELETE /api/policy-mappings/{mappingId}",
         "list": "GET /api/policy-mappings",
         "example": {
           "key": "size_map_app",
@@ -136,7 +141,15 @@
               ]
             }
           ]
-        }
+        },
+        "destroy": {
+          "via": "update",
+          "body": {
+            "archived": true
+          },
+          "reason": "A mapping is archivable (P11): it is never deleted, so destroy archives it (refused while a policy type that is not archived reads it)."
+        },
+        "changeInstead": "To change its key, from, to or cell, create a new mapping with a new key, point the policy types' fields at it, then archive the old one by removing its resource."
       },
       {
         "name": "policy_label",
@@ -245,7 +258,7 @@
       },
       {
         "name": "policy_option_sources",
-        "description": "The sources a field of a policy type may read in `optionsSource` (the feature `policies`), for one `kind` of field: `string` the Network's catalogues (`catalogue.<key>`), `map` its mappings (`mapping.<key>`), each with its count and its first three values. Set `kind`: the API requires it (400 at read otherwise).",
+        "description": "The sources a field of a policy type may read in `optionsSource` (the feature `policies`), for one `kind` of field: `string` the Network's catalogues (`catalogue.<key>`), `map` its mappings (`mapping.<key>`), never an archived one, each with its count and its first three values. Set `kind`: the API requires it (400 at read otherwise).",
         "read": "GET /api/policy-option-sources"
       },
       {
@@ -791,6 +804,15 @@
           "pattern": "^(string|map)$"
         }
       },
+      "IncludeArchived": {
+        "name": "includeArchived",
+        "in": "query",
+        "required": false,
+        "description": "`true`: the archived ones too, each with its `archivedAt`. `false` or left out: only those not archived.",
+        "schema": {
+          "type": "boolean"
+        }
+      },
       "PlatformFilter": {
         "name": "platform",
         "in": "query",
@@ -1141,7 +1163,7 @@
                   "maxItems": 200,
                   "type": "array",
                   "items": {},
-                  "description": "The schema of the body of its configurations: 0-200 field definitions in the field language of DAS Policies (`{ id, kind, label?, required?, default?, list?, options?, optionsSource?, min?, max?, ... }`; kinds `string`, `int`, `decimal`, `bool`, `section`, `typed`, `map`; `list: true` makes a value a list, of records for a `section`). `optionsSource` names the values a field reads (GET /api/policy-option-sources): a `string` reads a catalogue, `catalogue.<key>`; a `map` reads a mapping, `mapping.<key>`, and holds rows `{ key, cells: [{ to, value? }] }` (e.g. `[{ \"key\": \"320x50\", \"cells\": [{ \"to\": \"GAM\" }, { \"to\": \"PREBID\" }] }]`). A source the Network has not is 400 `unknown_source`, a `default` outside its catalogue 400 `not_in_options`. An invalid definition is 400 at `configurationTypes.<i>.fields.<path>` with the field language's `code`"
+                  "description": "The schema of the body of its configurations: 0-200 field definitions in the field language of DAS Policies (`{ id, kind, label?, required?, default?, list?, options?, optionsSource?, min?, max?, ... }`; kinds `string`, `int`, `decimal`, `bool`, `section`, `typed`, `map`; `list: true` makes a value a list, of records for a `section`). `optionsSource` names the values a field reads (GET /api/policy-option-sources): a `string` reads a catalogue, `catalogue.<key>`; a `map` reads a mapping, `mapping.<key>`, and holds rows `{ key, cells: [{ to, value? }] }` (e.g. `[{ \"key\": \"320x50\", \"cells\": [{ \"to\": \"GAM\" }, { \"to\": \"PREBID\" }] }]`). A source the Network has not, or one archived, is 400 `unknown_source`; a `default` is not checked against its catalogue. Stored by the source's id and answered by its key. An invalid definition is 400 at `configurationTypes.<i>.fields.<path>` with the field language's `code`"
                 }
               },
               "required": [
@@ -1264,7 +1286,7 @@
                   "maxItems": 200,
                   "type": "array",
                   "items": {},
-                  "description": "The schema of the body of its configurations: 0-200 field definitions in the field language of DAS Policies (`{ id, kind, label?, required?, default?, list?, options?, optionsSource?, min?, max?, ... }`; kinds `string`, `int`, `decimal`, `bool`, `section`, `typed`, `map`; `list: true` makes a value a list, of records for a `section`). `optionsSource` names the values a field reads (GET /api/policy-option-sources): a `string` reads a catalogue, `catalogue.<key>`; a `map` reads a mapping, `mapping.<key>`, and holds rows `{ key, cells: [{ to, value? }] }` (e.g. `[{ \"key\": \"320x50\", \"cells\": [{ \"to\": \"GAM\" }, { \"to\": \"PREBID\" }] }]`). A source the Network has not is 400 `unknown_source`, a `default` outside its catalogue 400 `not_in_options`. An invalid definition is 400 at `configurationTypes.<i>.fields.<path>` with the field language's `code`"
+                  "description": "The schema of the body of its configurations: 0-200 field definitions in the field language of DAS Policies (`{ id, kind, label?, required?, default?, list?, options?, optionsSource?, min?, max?, ... }`; kinds `string`, `int`, `decimal`, `bool`, `section`, `typed`, `map`; `list: true` makes a value a list, of records for a `section`). `optionsSource` names the values a field reads (GET /api/policy-option-sources): a `string` reads a catalogue, `catalogue.<key>`; a `map` reads a mapping, `mapping.<key>`, and holds rows `{ key, cells: [{ to, value? }] }` (e.g. `[{ \"key\": \"320x50\", \"cells\": [{ \"to\": \"GAM\" }, { \"to\": \"PREBID\" }] }]`). A source the Network has not, or one archived, is 400 `unknown_source`; a `default` is not checked against its catalogue. Stored by the source's id and answered by its key. An invalid definition is 400 at `configurationTypes.<i>.fields.<path>` with the field language's `code`"
                 }
               },
               "required": [
@@ -1412,7 +1434,7 @@
             "minLength": 1,
             "maxLength": 64,
             "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
-            "description": "Key of the catalogue, snake_case, 1-64 characters, unique in the Network and never changed: fields and target dimensions read it as `catalogue.<key>`, mappings name it by it"
+            "description": "Key of the catalogue, snake_case, 1-64 characters, unique in the Network and never changed: fields and target dimensions read it as `catalogue.<key>`, mappings name it by it. An archived catalogue keeps its key: 409 `ALREADY_EXISTS` naming its id (restore it instead)"
           },
           "label": {
             "type": "string",
@@ -1426,11 +1448,17 @@
             "items": {
               "type": "object",
               "properties": {
+                "id": {
+                  "description": "The value's id, `catval_<ULID>`, as GET answers it: with it, this value takes the text and label written (mapping rows follow it); without it, the value with this text is meant, active or archived (an archived one is restored), or a new value with a new id. An id the catalogue has not, or one listed twice, is 400; on create, leave it out (400)",
+                  "x-das-terraform-computed": true,
+                  "type": "string",
+                  "pattern": "^catval_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
                 "value": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 200,
-                  "description": "The value, 1-200 characters, unique in the catalogue (400 `duplicate`): bodies, targets and mappings name it by this text, so a new text is the removal of one value and the addition of another"
+                  "description": "The value's text, 1-200 characters, unique in the catalogue with its archived values (400 `duplicate`). Configurations, policies and defaults hold their own copy of a text: a change here changes none of them, and none is checked against the catalogue"
                 },
                 "label": {
                   "description": "How the value is shown, 1-200 characters; null or left out, the value itself (null in the answer, so a read value is written back as it is)",
@@ -1452,7 +1480,7 @@
               "additionalProperties": false,
               "description": "One value of a catalogue."
             },
-            "description": "The values, 0-1000, kept and answered in the order written"
+            "description": "The active values, 0-1000, kept and answered in the order written"
           }
         },
         "required": [
@@ -1473,17 +1501,23 @@
             "maxLength": 200
           },
           "values": {
-            "description": "The new values, 0-1000, replacing the stored list whole, in the order written; each as on create",
+            "description": "The new active values, 0-1000, replacing the stored list whole, in the order written. A value left out is archived: answered in `archivedValues`, still named by the mapping rows that name it; writing its text or id again restores it",
             "maxItems": 1000,
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
+                "id": {
+                  "description": "The value's id, `catval_<ULID>`, as GET answers it: with it, this value takes the text and label written (mapping rows follow it); without it, the value with this text is meant, active or archived (an archived one is restored), or a new value with a new id. An id the catalogue has not, or one listed twice, is 400; on create, leave it out (400)",
+                  "x-das-terraform-computed": true,
+                  "type": "string",
+                  "pattern": "^catval_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
                 "value": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 200,
-                  "description": "The value, 1-200 characters, unique in the catalogue (400 `duplicate`): bodies, targets and mappings name it by this text, so a new text is the removal of one value and the addition of another"
+                  "description": "The value's text, 1-200 characters, unique in the catalogue with its archived values (400 `duplicate`). Configurations, policies and defaults hold their own copy of a text: a change here changes none of them, and none is checked against the catalogue"
                 },
                 "label": {
                   "description": "How the value is shown, 1-200 characters; null or left out, the value itself (null in the answer, so a read value is written back as it is)",
@@ -1506,6 +1540,10 @@
               "description": "One value of a catalogue."
             }
           },
+          "archived": {
+            "description": "`true` archives the catalogue (`archivedAt` set by the server): refused with 409 `IN_USE` while a policy type that is not `ARCHIVED` reads it in a field, a target dimension in its input or a mapping that is not archived has it as `from` or `to`. `false` restores an archived catalogue; an archived one takes no other change (409 `ARCHIVED`), and archiving it again changes nothing",
+            "type": "boolean"
+          },
           "expectedUpdatedAt": {
             "description": "The `updatedAt` the change was made on: when the catalogue changed since, 409 `EDIT_CONFLICT` and nothing is written. Left out, not checked",
             "x-das-terraform-skip": true,
@@ -1526,7 +1564,7 @@
             "minLength": 1,
             "maxLength": 64,
             "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
-            "description": "Key of the mapping, snake_case, 1-64 characters, unique in the Network and never changed: a `map` field reads it as `mapping.<key>`"
+            "description": "Key of the mapping, snake_case, 1-64 characters, unique in the Network and never changed: a `map` field reads it as `mapping.<key>`. An archived mapping keeps its key: 409 `ALREADY_EXISTS` naming its id (restore it instead)"
           },
           "label": {
             "type": "string",
@@ -1539,14 +1577,14 @@
             "minLength": 1,
             "maxLength": 64,
             "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
-            "description": "The catalogue whose values are the rows' keys, by its key (GET /api/policy-catalogues; 400 when the Network has none). Never changed"
+            "description": "The catalogue whose values are the rows' keys, by its key (GET /api/policy-catalogues; 400 when the Network has none or it is archived). Never changed"
           },
           "to": {
             "type": "string",
             "minLength": 1,
             "maxLength": 64,
             "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
-            "description": "The catalogue whose values are the cells' `to`, by its key (400 when the Network has none). Never changed"
+            "description": "The catalogue whose values are the cells' `to`, by its key (400 when the Network has none or it is archived). Never changed"
           },
           "cell": {
             "description": "The type of each cell's value in the field language of DAS Policies, a definition of one value (`{ kind, min?, max?, unit?, options?, optionLabels?, maxLength? }`; kinds `string`, `int`, `decimal`, `bool`; no `list`, no `optionsSource`). Null or left out, a cell holds no value: the row's `to` values are what its key goes to. Never changed. An invalid definition is 400 at `cell.<path>` with the field language's `code`"
@@ -1560,7 +1598,7 @@
                 "key": {
                   "type": "string",
                   "maxLength": 200,
-                  "description": "A value of the `from` catalogue (400 `not_in_options` otherwise), once in the mapping (400 `duplicate`)"
+                  "description": "A value of the `from` catalogue by its text, active or archived (400 `not_in_options` otherwise), once in the mapping (400 `duplicate`); stored by the value's id, so it follows a change of the value's text"
                 },
                 "cells": {
                   "maxItems": 1000,
@@ -1571,7 +1609,7 @@
                       "to": {
                         "type": "string",
                         "maxLength": 200,
-                        "description": "A value of the `to` catalogue (400 `not_in_options` otherwise), once per row (400 `duplicate`)"
+                        "description": "A value of the `to` catalogue by its text, active or archived (400 `not_in_options` otherwise), once per row (400 `duplicate`); stored by the value's id, so it follows a change of the value's text"
                       },
                       "value": {
                         "description": "The cell's value, of the mapping's `cell` type: required with a `cell` (400 `required`), refused without one (400 `unknown_key`); an invalid one is 400 at it with the field language's `code`",
@@ -1598,7 +1636,7 @@
               "additionalProperties": false,
               "description": "One row of a mapping: a value of the `from` catalogue and the values of `to` it goes to."
             },
-            "description": "The rows, 0-1000, kept and answered in the order written. Validated against the catalogues' values as they are when the write runs; an invalid row is 400 at `rows.<i>...` with the field language's `code`"
+            "description": "The rows, 0-1000, kept and answered in the order written. Validated against the catalogues' values, archived ones included, as they are when the write runs; an invalid row is 400 at `rows.<i>...` with the field language's `code`"
           }
         },
         "required": [
@@ -1630,7 +1668,7 @@
                 "key": {
                   "type": "string",
                   "maxLength": 200,
-                  "description": "A value of the `from` catalogue (400 `not_in_options` otherwise), once in the mapping (400 `duplicate`)"
+                  "description": "A value of the `from` catalogue by its text, active or archived (400 `not_in_options` otherwise), once in the mapping (400 `duplicate`); stored by the value's id, so it follows a change of the value's text"
                 },
                 "cells": {
                   "maxItems": 1000,
@@ -1641,7 +1679,7 @@
                       "to": {
                         "type": "string",
                         "maxLength": 200,
-                        "description": "A value of the `to` catalogue (400 `not_in_options` otherwise), once per row (400 `duplicate`)"
+                        "description": "A value of the `to` catalogue by its text, active or archived (400 `not_in_options` otherwise), once per row (400 `duplicate`); stored by the value's id, so it follows a change of the value's text"
                       },
                       "value": {
                         "description": "The cell's value, of the mapping's `cell` type: required with a `cell` (400 `required`), refused without one (400 `unknown_key`); an invalid one is 400 at it with the field language's `code`",
@@ -1668,6 +1706,10 @@
               "additionalProperties": false,
               "description": "One row of a mapping: a value of the `from` catalogue and the values of `to` it goes to."
             }
+          },
+          "archived": {
+            "description": "`true` archives the mapping (`archivedAt` set by the server): refused with 409 `IN_USE` while a policy type that is not `ARCHIVED` reads it in a field. `false` restores an archived mapping (400 while one of its catalogues is archived: restore that first); an archived one takes no other change (409 `ARCHIVED`), and archiving it again changes nothing",
+            "type": "boolean"
           },
           "expectedUpdatedAt": {
             "description": "The `updatedAt` the change was made on: when the mapping changed since, 409 `EDIT_CONFLICT` and nothing is written. Left out, not checked",
@@ -1746,7 +1788,7 @@
             "maxLength": 2000
           },
           "body": {
-            "description": "The configuration's values: a JSON object shaped by its configuration type's `fields` (GET /api/policy-types: the field language of DAS Policies; a `section` is a nested object, a field hidden by `showIf` is left out, a field with a `default` may be). Every value of an `optionsSource: catalogue.<key>` field is a value of that catalogue (GET /api/policy-catalogues); a `map` field's rows have keys of its mapping's `from` catalogue and cells with `to` of its `to` catalogue, each with a value of its cell type when it has one (the mapping's rows are not checked). An invalid value is 400 at `body.<path>` with the field language's `code`",
+            "description": "The configuration's values: a JSON object shaped by its configuration type's `fields` (GET /api/policy-types: the field language of DAS Policies; a `section` is a nested object, a field hidden by `showIf` is left out, a field with a `default` may be). A value of an `optionsSource: catalogue.<key>` field is the configuration's own copy of a text, not checked against that catalogue (GET /api/policy-catalogues offers its values); a `map` field's rows are `{ key, cells: [{ to, value? }] }`, each cell with a value of the mapping's cell type when it has one (neither the catalogues nor the mapping's rows are checked). An invalid value is 400 at `body.<path>` with the field language's `code`",
             "x-das-terraform-json": true
           }
         },
@@ -1790,7 +1832,7 @@
             ]
           },
           "body": {
-            "description": "The configuration's values: a JSON object shaped by its configuration type's `fields` (GET /api/policy-types: the field language of DAS Policies; a `section` is a nested object, a field hidden by `showIf` is left out, a field with a `default` may be). Every value of an `optionsSource: catalogue.<key>` field is a value of that catalogue (GET /api/policy-catalogues); a `map` field's rows have keys of its mapping's `from` catalogue and cells with `to` of its `to` catalogue, each with a value of its cell type when it has one (the mapping's rows are not checked). An invalid value is 400 at `body.<path>` with the field language's `code`",
+            "description": "The configuration's values: a JSON object shaped by its configuration type's `fields` (GET /api/policy-types: the field language of DAS Policies; a `section` is a nested object, a field hidden by `showIf` is left out, a field with a `default` may be). A value of an `optionsSource: catalogue.<key>` field is the configuration's own copy of a text, not checked against that catalogue (GET /api/policy-catalogues offers its values); a `map` field's rows are `{ key, cells: [{ to, value? }] }`, each cell with a value of the mapping's cell type when it has one (neither the catalogues nor the mapping's rows are checked). An invalid value is 400 at `body.<path>` with the field language's `code`",
             "x-das-terraform-json": true
           },
           "expectedUpdatedAt": {
@@ -1965,7 +2007,7 @@
                       "boolean"
                     ]
                   },
-                  "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is a value of that catalogue (GET /api/policy-catalogues). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
+                  "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is its own copy of a text, not checked against that catalogue (GET /api/policy-catalogues offers its values). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
                 }
               },
               "required": [
@@ -2080,7 +2122,7 @@
                             "boolean"
                           ]
                         },
-                        "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is a value of that catalogue (GET /api/policy-catalogues). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
+                        "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is its own copy of a text, not checked against that catalogue (GET /api/policy-catalogues offers its values). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
                       }
                     },
                     "required": [
@@ -2291,7 +2333,7 @@
                       "boolean"
                     ]
                   },
-                  "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is a value of that catalogue (GET /api/policy-catalogues). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
+                  "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is its own copy of a text, not checked against that catalogue (GET /api/policy-catalogues offers its values). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
                 }
               },
               "required": [
@@ -2406,7 +2448,7 @@
                             "boolean"
                           ]
                         },
-                        "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is a value of that catalogue (GET /api/policy-catalogues). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
+                        "description": "The values `op` compares with, each shaped by its dimension's `input` (GET /api/policy-target-dimensions; an item of a list dimension): `IN` / `NOT_IN` one or more distinct (one for a `bool`), kept and answered in the order written, which a match ignores; `GTE` / `LTE` one; `BETWEEN` `[from, to]`, from ≤ to for a number. A value of a dimension whose `input` reads `optionsSource: catalogue.<key>` is its own copy of a text, not checked against that catalogue (GET /api/policy-catalogues offers its values). 1-500; an invalid one is 400 at `<row>.values.<i>` with the field language's `code`"
                       }
                     },
                     "required": [
@@ -3343,12 +3385,12 @@
           "count": {
             "type": "integer",
             "minimum": 0,
-            "description": "How many values it holds: a catalogue's values, a mapping's rows"
+            "description": "How many values it holds: a catalogue's active values, a mapping's rows"
           },
           "sample": {
             "type": "array",
             "maxItems": 3,
-            "description": "Its first three values (a mapping's: its rows' keys), in the source's own order",
+            "description": "Its first three values (a mapping's: its rows' keys, by text), in the source's own order",
             "items": {
               "type": "string"
             }
@@ -3677,14 +3719,16 @@
       },
       "PolicyCatalogue": {
         "type": "object",
-        "description": "A value catalogue of the Network: the values fields of policy types and target dimensions read as `catalogue.<key>`, and the sides of mappings.",
+        "description": "A value catalogue of the Network: the values fields of policy types and target dimensions offer as `catalogue.<key>`, and the sides of mappings. Archived, never deleted.",
         "required": [
           "id",
           "key",
           "label",
           "values",
+          "archivedValues",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "archivedAt"
         ],
         "properties": {
           "id": {
@@ -3704,25 +3748,68 @@
           "values": {
             "type": "array",
             "maxItems": 1000,
-            "description": "The values, in the order written",
+            "description": "The active values, in the order written",
             "items": {
               "type": "object",
-              "description": "One value of the catalogue",
+              "description": "One active value of the catalogue",
               "required": [
+                "id",
                 "value",
                 "label"
               ],
               "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^catval_[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+                  "description": "Value id, `catval_<ULID>`: never changes; mapping rows point at it, so they follow a change of its text"
+                },
                 "value": {
                   "type": "string",
-                  "description": "The value, unique in the catalogue: what bodies, targets and mappings name"
+                  "description": "The value's text, unique in the catalogue with its archived values"
                 },
                 "label": {
                   "type": [
                     "string",
                     "null"
                   ],
-                  "description": "How the value is shown; null: the value itself"
+                  "description": "How the value is shown; null: the text itself"
+                }
+              }
+            }
+          },
+          "archivedValues": {
+            "type": "array",
+            "description": "The values a write of `values` left out, read-only: mapping rows may still name them, and writing one's text or id in `values` again restores it",
+            "items": {
+              "type": "object",
+              "description": "One archived value of the catalogue",
+              "required": [
+                "id",
+                "value",
+                "label",
+                "archivedAt"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^catval_[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+                  "description": "Value id, `catval_<ULID>`"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "The value's text"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "How the value is shown; null: the text itself"
+                },
+                "archivedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When a write of `values` left it out, ISO-8601 UTC"
                 }
               }
             }
@@ -3736,6 +3823,14 @@
             "type": "string",
             "format": "date-time",
             "description": "When it last changed, ISO-8601 UTC"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When it was archived, ISO-8601 UTC; null while it is not"
           }
         }
       },
@@ -3761,7 +3856,7 @@
       },
       "PolicyMapping": {
         "type": "object",
-        "description": "A mapping between two catalogues of the Network: for each value of `from` the values of `to` it goes to, each with a value of the type `cell` when it has one. The template a `map` field of a configuration starts from; it changes no configuration.",
+        "description": "A mapping between two catalogues of the Network: for each value of `from` the values of `to` it goes to, each with a value of the type `cell` when it has one. The template a `map` field of a configuration starts from; it changes no configuration. Archived, never deleted.",
         "required": [
           "id",
           "key",
@@ -3771,7 +3866,8 @@
           "cell",
           "rows",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "archivedAt"
         ],
         "properties": {
           "id": {
@@ -3820,7 +3916,7 @@
               "properties": {
                 "key": {
                   "type": "string",
-                  "description": "A value of the `from` catalogue"
+                  "description": "A value of the `from` catalogue, by its text as it is now (it may be archived)"
                 },
                 "cells": {
                   "type": "array",
@@ -3834,7 +3930,7 @@
                     "properties": {
                       "to": {
                         "type": "string",
-                        "description": "A value of the `to` catalogue"
+                        "description": "A value of the `to` catalogue, by its text as it is now (it may be archived)"
                       },
                       "value": {
                         "anyOf": [
@@ -3865,6 +3961,14 @@
             "type": "string",
             "format": "date-time",
             "description": "When it last changed, ISO-8601 UTC"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When it was archived, ISO-8601 UTC; null while it is not"
           }
         }
       },
@@ -5027,7 +5131,7 @@
       "get": {
         "operationId": "listPolicyOptionSources",
         "summary": "List the sources a field may read",
-        "description": "Network-bound credential; any role holding the scope `das:tag-manager:policy-types:read` (`VIEWER`, `OPERATOR`, `APPROVER`, `NETWORK_ADMIN`). Requires the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). The sources a field of a policy type may name in `optionsSource`, for one `kind` of field: for `string` the Network's catalogues, for `map` its mappings, by their id; each with its count and its first three values.",
+        "description": "Network-bound credential; any role holding the scope `das:tag-manager:policy-types:read` (`VIEWER`, `OPERATOR`, `APPROVER`, `NETWORK_ADMIN`). Requires the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). The sources a field of a policy type may name in `optionsSource`, for one `kind` of field: for `string` the Network's catalogues, for `map` its mappings, by their id, never an archived one; each with its count and its first three values.",
         "tags": [
           "policies"
         ],
@@ -5154,7 +5258,7 @@
       "post": {
         "operationId": "createPolicyType",
         "summary": "Create a policy type",
-        "description": "Network-bound credential with the `ADMIN` role (`NETWORK_ADMIN`) and the scope `das:tag-manager:policy-types:admin`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). With its platforms, dimensions and configuration types, in one write. A key the Network already has is 409 `ALREADY_EXISTS`; an unknown platform, a dimension key that names no target dimension (`unknown_dimension`) or an invalid `fields` definition is 400 at its place (field-language errors carry its `code`): a `catalogue.<key>` or `mapping.<key>` source the Network has not is `unknown_source`, a `default` that is no value of its catalogue `not_in_options` at it. Audited as `policy-type.create`.",
+        "description": "Network-bound credential with the `ADMIN` role (`NETWORK_ADMIN`) and the scope `das:tag-manager:policy-types:admin`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). With its platforms, dimensions and configuration types, in one write. A key the Network already has is 409 `ALREADY_EXISTS`; an unknown platform, a dimension key that names no target dimension (`unknown_dimension`) or an invalid `fields` definition is 400 at its place (field-language errors carry its `code`): a `catalogue.<key>` or `mapping.<key>` source the Network has not, or one archived, is `unknown_source`. A `default` is not checked against its catalogue. Fields are stored with their sources by id and answered by key. Audited as `policy-type.create`.",
         "tags": [
           "policies"
         ],
@@ -5289,7 +5393,7 @@
       "patch": {
         "operationId": "updatePolicyType",
         "summary": "Update, archive or restore a policy type",
-        "description": "Network-bound credential with the `ADMIN` role (`NETWORK_ADMIN`) and the scope `das:tag-manager:policy-types:admin`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Any subset of its fields; its `key` never changes (400). `status: ARCHIVED` archives it (409 `IN_USE` while a policy or configuration of the type is not `ARCHIVED`). An archived type takes only a change with another status, which restores it and is validated as a new type (409 `ARCHIVED` otherwise; archiving it again changes nothing). Archived policies and configurations are not checked again and hold nothing back: their restore validates them. With `expectedUpdatedAt`, a type changed since is 409 `EDIT_CONFLICT`. Dropping a context a live policy takes, a configuration type with configurations, or a dimension a live policy of the type targets (directly or in an attachment; `errors[]` names each policy), is 409 `IN_USE`; a dimension key that names no target dimension is 400 `unknown_dimension` at `dimensions.<i>`; a change of a configuration type's `fields` that a stored configuration would no longer pass is 400 at `configurationTypes.<i>.fields` naming the configuration, against the catalogues and mappings the new fields read (a `map` field pointed at another mapping included: another `from` or cell type); `fields` are checked as on a create (`unknown_source`, a `default` outside its catalogue) (a change of `platforms` validates no configuration again). Audited as `policy-type.update`.",
+        "description": "Network-bound credential with the `ADMIN` role (`NETWORK_ADMIN`) and the scope `das:tag-manager:policy-types:admin`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Any subset of its fields; its `key` never changes (400). `status: ARCHIVED` archives it (409 `IN_USE` while a policy or configuration of the type is not `ARCHIVED`). An archived type takes only a change with another status, which restores it and is validated as a new type (409 `ARCHIVED` otherwise; archiving it again changes nothing). Archived policies and configurations are not checked again and hold nothing back: their restore validates them. With `expectedUpdatedAt`, a type changed since is 409 `EDIT_CONFLICT`. Dropping a context a live policy takes, a configuration type with configurations, or a dimension a live policy of the type targets (directly or in an attachment; `errors[]` names each policy), is 409 `IN_USE`; a dimension key that names no target dimension is 400 `unknown_dimension` at `dimensions.<i>`; a change of a configuration type's `fields` that a stored configuration would no longer pass is 400 at `configurationTypes.<i>.fields` naming the configuration, against the mappings the new fields read (a `map` field pointed at another mapping included: another cell type), never against a catalogue's values; `fields` are checked as on a create (`unknown_source` for a source the Network has not or one archived: a restore of a type whose field reads an archived catalogue or mapping is 400, restore that first; a field that still names, by its key, a catalogue or mapping deleted before migration 0007 is `unknown_source` even when one with that key exists now, which another field may read) (a change of `platforms` validates no configuration again). Audited as `policy-type.update`.",
         "tags": [
           "policies"
         ],
@@ -5430,7 +5534,7 @@
       "post": {
         "operationId": "createPolicyTargetDimension",
         "summary": "Create a target dimension",
-        "description": "Network-bound credential with the `ADMIN` role (`NETWORK_ADMIN`) and the scope `das:tag-manager:policy-types:admin`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). A key the Network already has is 409 `ALREADY_EXISTS`; an invalid `input` is 400 at its place (field-language errors carry its `code`; a `catalogue.<key>` the Network has not is `unknown_source`). Audited as `policy-target-dimension.create`.",
+        "description": "Network-bound credential with the `ADMIN` role (`NETWORK_ADMIN`) and the scope `das:tag-manager:policy-types:admin`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). A key the Network already has is 409 `ALREADY_EXISTS`; an invalid `input` is 400 at its place (field-language errors carry its `code`; a `catalogue.<key>` the Network has not, or one archived, is `unknown_source`). Audited as `policy-target-dimension.create`.",
         "tags": [
           "policies"
         ],
@@ -6050,7 +6154,7 @@
       "get": {
         "operationId": "listPolicyCatalogues",
         "summary": "List the catalogues",
-        "description": "Network-bound credential; any role holding the scope `das:tag-manager:catalogues:read` (`VIEWER`, `OPERATOR`, `APPROVER`, `NETWORK_ADMIN`). Requires the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). By id.",
+        "description": "Network-bound credential; any role holding the scope `das:tag-manager:catalogues:read` (`VIEWER`, `OPERATOR`, `APPROVER`, `NETWORK_ADMIN`). Requires the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). By id; only those not archived, unless `includeArchived=true`.",
         "tags": [
           "policies"
         ],
@@ -6067,6 +6171,9 @@
           },
           {
             "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeArchived"
           },
           {
             "$ref": "#/components/parameters/RequestId"
@@ -6108,7 +6215,7 @@
       "post": {
         "operationId": "createPolicyCatalogue",
         "summary": "Create a catalogue",
-        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). A key the Network already has is 409 `ALREADY_EXISTS`. A value listed twice is 400 `duplicate` at `values.<i>.value`. Audited as `policy-catalogue.create`.",
+        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). A key the Network already has, an archived catalogue's included, is 409 `ALREADY_EXISTS` naming that catalogue's id as `ref` (restore an archived one with `archived: false`). Each value gets its id; a value with an `id` is 400 at `values.<i>.id`, a text listed twice 400 `duplicate` at `values.<i>.value`. Audited as `policy-catalogue.create`.",
         "tags": [
           "policies"
         ],
@@ -6243,7 +6350,7 @@
       "patch": {
         "operationId": "updatePolicyCatalogue",
         "summary": "Update a catalogue",
-        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Any subset of its label and values; its `key` never changes (400). `values` replaces the stored list whole, in the order written, with the rules of the create. A value left out of `values` is removed: refused while a configuration (its body, a `map` field's row key or cell `to` included), a policy (a target row, its own or an attachment's, on a dimension reading the catalogue) or a policy type (a field's `default`) that is not `ARCHIVED` names it (409 `IN_USE`, one `errors[]` entry per object with its id as `ref`; an archived one holds nothing, its restore validates it again); otherwise the mappings on the catalogue lose it in the same write (the rows it keys, the cells it is the `to` of, a row left without cells), audited with the catalogue as one entry. With `expectedUpdatedAt`, a catalogue changed since is 409 `EDIT_CONFLICT`. Audited as `policy-catalogue.update`.",
+        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Any subset of its label and values, or `archived`; its `key` never changes (400). `values` replaces the list of active values whole, in the order written: an element with `id` is that value, taking the text and label written (an id the catalogue has not, or one listed twice, is 400 at `values.<i>.id`); one without is the value with that text, active or archived (an archived one is restored), or a new value. A text is unique with the archived values (400 `duplicate`). A value left out is archived: answered in `archivedValues`, the mapping rows naming it keep it. Configurations, policies and policy types hold their own copies of values: a change here changes and checks none of them. `archived: true` archives the catalogue: 409 `IN_USE` while a policy type that is not `ARCHIVED` reads it in a field, a target dimension in its `input` or a mapping that is not archived has it as `from` or `to` (one `errors[]` entry each, its id as `ref`); an archived catalogue takes only `archived: false`, which restores it (409 `ARCHIVED` otherwise; archiving it again changes nothing). With `expectedUpdatedAt`, a catalogue changed since is 409 `EDIT_CONFLICT`. Audited as `policy-catalogue.update`.",
         "tags": [
           "policies"
         ],
@@ -6320,76 +6427,13 @@
             "$ref": "#/components/responses/UpstreamUnavailable"
           }
         }
-      },
-      "delete": {
-        "operationId": "deletePolicyCatalogue",
-        "summary": "Delete a catalogue",
-        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Only a catalogue no policy type that is not `ARCHIVED` reads in a field (`optionsSource: catalogue.<key>`, at any depth), no target dimension reads in its `input` and no mapping has as `from` or `to`: 409 `IN_USE` otherwise, one `errors[]` entry per policy type, target dimension or mapping with its id as `ref`. Audited as `policy-catalogue.delete`.",
-        "tags": [
-          "policies"
-        ],
-        "x-das-layer": "network",
-        "x-das-access": "operational",
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CatalogueIdPath"
-          },
-          {
-            "$ref": "#/components/parameters/IdempotencyKey"
-          },
-          {
-            "$ref": "#/components/parameters/RequestId"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Deleted",
-            "headers": {
-              "X-Request-Id": {
-                "$ref": "#/components/headers/XRequestId"
-              },
-              "Idempotent-Replayed": {
-                "$ref": "#/components/headers/IdempotentReplayed"
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationFailed"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthenticated"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/PolicyConflict"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedMediaType"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          },
-          "503": {
-            "$ref": "#/components/responses/UpstreamUnavailable"
-          }
-        }
       }
     },
     "/api/policy-mappings": {
       "get": {
         "operationId": "listPolicyMappings",
         "summary": "List the mappings",
-        "description": "Network-bound credential; any role holding the scope `das:tag-manager:catalogues:read` (`VIEWER`, `OPERATOR`, `APPROVER`, `NETWORK_ADMIN`). Requires the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). By id.",
+        "description": "Network-bound credential; any role holding the scope `das:tag-manager:catalogues:read` (`VIEWER`, `OPERATOR`, `APPROVER`, `NETWORK_ADMIN`). Requires the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). By id; only those not archived, unless `includeArchived=true`.",
         "tags": [
           "policies"
         ],
@@ -6406,6 +6450,9 @@
           },
           {
             "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeArchived"
           },
           {
             "$ref": "#/components/parameters/RequestId"
@@ -6447,7 +6494,7 @@
       "post": {
         "operationId": "createPolicyMapping",
         "summary": "Create a mapping",
-        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). `from` and `to` name catalogues of the Network by key (400 at them otherwise); an invalid `cell` is 400 at `cell.<path>` and an invalid row at `rows.<i>...`, with the field language's `code`. A key the Network already has is 409 `ALREADY_EXISTS`. A mapping is the template a `map` field of a configuration starts from: writing it changes no configuration. Audited as `policy-mapping.create`.",
+        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). `from` and `to` name catalogues of the Network that are not archived, by key (400 at them otherwise); an invalid `cell` is 400 at `cell.<path>` and an invalid row at `rows.<i>...`, with the field language's `code`. Rows name values by text and are stored by the values' ids. A key the Network already has, an archived mapping's included, is 409 `ALREADY_EXISTS` naming that mapping's id as `ref`. A mapping is the template a `map` field of a configuration starts from: writing it changes no configuration. Audited as `policy-mapping.create`.",
         "tags": [
           "policies"
         ],
@@ -6582,7 +6629,7 @@
       "patch": {
         "operationId": "updatePolicyMapping",
         "summary": "Update a mapping",
-        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Its label or rows; its `key`, `from`, `to` and `cell` never change (400). `rows` replaces the stored list whole, in the order written, validated as on create against the catalogues' values as they are now; no configuration is validated or changed. With `expectedUpdatedAt`, a mapping changed since is 409 `EDIT_CONFLICT`. Audited as `policy-mapping.update`.",
+        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Its label or rows, or `archived`; its `key`, `from`, `to` and `cell` never change (400). `rows` replaces the stored list whole, in the order written, validated as on create against the catalogues' values as they are now, archived ones included; no configuration is validated or changed. `archived: true` archives the mapping: 409 `IN_USE` while a policy type that is not `ARCHIVED` reads it in a field (one `errors[]` entry per type, its id as `ref`); an archived mapping takes only `archived: false`, which restores it (400 while one of its catalogues is archived; 409 `ARCHIVED` for another change; archiving it again changes nothing). With `expectedUpdatedAt`, a mapping changed since is 409 `EDIT_CONFLICT`. Audited as `policy-mapping.update`.",
         "tags": [
           "policies"
         ],
@@ -6631,69 +6678,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/PolicyMapping"
                 }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ValidationFailed"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthenticated"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/PolicyConflict"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedMediaType"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          },
-          "503": {
-            "$ref": "#/components/responses/UpstreamUnavailable"
-          }
-        }
-      },
-      "delete": {
-        "operationId": "deletePolicyMapping",
-        "summary": "Delete a mapping",
-        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:catalogues:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Only a mapping no policy type that is not `ARCHIVED` reads in a field (`optionsSource: mapping.<key>`): 409 `IN_USE` otherwise, one `errors[]` entry per policy type with its id as `ref`. Audited as `policy-mapping.delete`.",
-        "tags": [
-          "policies"
-        ],
-        "x-das-layer": "network",
-        "x-das-access": "operational",
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/MappingIdPath"
-          },
-          {
-            "$ref": "#/components/parameters/IdempotencyKey"
-          },
-          {
-            "$ref": "#/components/parameters/RequestId"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Deleted",
-            "headers": {
-              "X-Request-Id": {
-                "$ref": "#/components/headers/XRequestId"
-              },
-              "Idempotent-Replayed": {
-                "$ref": "#/components/headers/IdempotentReplayed"
               }
             }
           },
@@ -7140,7 +7124,7 @@
       "post": {
         "operationId": "createPolicyConfiguration",
         "summary": "Create a configuration",
-        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:policies:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Of a policy type that is not `ARCHIVED` (409 `ARCHIVED`) and one of its configuration types (400 at `configurationTypeId`). The body is validated against the configuration type's `fields`: an invalid value is 400 at `body.<path>` with the field language's `code`; every value of an `optionsSource: catalogue.<key>` field must be a value of that catalogue, and a `map` field's rows hold values of its mapping's catalogues (`not_in_options`). A duplicate is a create with a copy. Audited as `policy-configuration.create`.",
+        "description": "Network-bound credential with at least the `OPERATOR` role and the scope `das:tag-manager:policies:write`, and the feature `policies` on for the Network (403 `FEATURE_DISABLED` otherwise). Of a policy type that is not `ARCHIVED` (409 `ARCHIVED`) and one of its configuration types (400 at `configurationTypeId`). The body is validated against the configuration type's `fields`: an invalid value is 400 at `body.<path>` with the field language's `code`; a value is not checked against a catalogue (a field's own `options` are), and a `map` field's cells hold values of its mapping's cell type. A duplicate is a create with a copy. Audited as `policy-configuration.create`.",
         "tags": [
           "policies"
         ],

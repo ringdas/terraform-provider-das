@@ -99,6 +99,9 @@ func resourcePage(r *model.Resource) string {
 	if r.Def.Destroy != nil {
 		fmt.Fprintf(&b, " Destroy: %s", r.Def.Destroy.Reason)
 	}
+	if r.Def.ChangeInstead != "" {
+		fmt.Fprintf(&b, " %s", r.Def.ChangeInstead)
+	}
 	b.WriteString("\n\n## Example Usage\n\n```terraform\n")
 	b.WriteString(exampleBlock("resource", r.TypeName, r.Attrs, r.Def.Example))
 	b.WriteString("```\n\n")

@@ -46,8 +46,11 @@ type ResourceDef struct {
 	Update      string   `json:"update,omitempty"`
 	Delete      string   `json:"delete,omitempty"`
 	Destroy     *Destroy `json:"destroy,omitempty"`
-	List        string   `json:"list,omitempty"`
-	ListName    string   `json:"listName,omitempty"`
+	// ChangeInstead is what to do instead of changing an attribute the
+	// update does not take (without a delete, it cannot be replaced either).
+	ChangeInstead string `json:"changeInstead,omitempty"`
+	List          string `json:"list,omitempty"`
+	ListName      string `json:"listName,omitempty"`
 	// Example is the registry example by wire name (internal/docgen).
 	Example map[string]any `json:"example,omitempty"`
 	// CreateBody is sent on every create and never an attribute (a minted

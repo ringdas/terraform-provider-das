@@ -667,6 +667,9 @@ func inputAttrIn(prop contract.Property, inCollection bool) (*Attr, error) {
 			switch {
 			case p.Required:
 				na.Required = true
+			case p.Schema.Computed:
+				// Nested only, like a default: written to keep a value's identity, filled by the API otherwise.
+				na.Optional, na.Computed = true, true
 			case p.Schema.HasDefault:
 				// Nested only: a top-level input echoed by the read is optional and computed already (mergeResponse).
 				na.Optional, na.Computed = true, true

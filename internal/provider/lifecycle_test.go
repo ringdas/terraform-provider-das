@@ -366,10 +366,22 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(w, 200, obj)
 	case r.Method == http.MethodPost && p == "/api/policy-catalogues":
-		// A catalogue: its key never changes; a value's label left out is null.
+		// A catalogue: its key never changes, an archived one's too (409); a value gets its id
+		// (none is written on create, 400); a value's label left out is null.
+		if f.catalogueByKey(body["key"]) != nil {
+			problem(w, 409, "ALREADY_EXISTS")
+			return
+		}
+		for _, v := range orEmpty(body["values"]).([]any) {
+			if _, ok := v.(map[string]any)["id"]; ok {
+				problem(w, 400, "VALIDATION_FAILED")
+				return
+			}
+		}
 		f.seq++
 		id := fmt.Sprintf("cat_01M40KW4GB68ZT4D4HAE7J3X%02d", f.seq)
-		obj := map[string]any{"id": id, "key": body["key"], "label": body["label"], "values": catalogueValues(body["values"]), "createdAt": now, "updatedAt": now}
+		obj := map[string]any{"id": id, "key": body["key"], "label": body["label"], "values": []any{}, "archivedValues": []any{}, "createdAt": now, "updatedAt": now, "archivedAt": nil}
+		catalogueValues(obj, body["values"], now)
 		f.objects["/api/policy-catalogues/"+id] = obj
 		reply(w, 201, obj)
 	case r.Method == http.MethodPost && p == "/api/policy-mappings":
@@ -388,7 +400,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.seq++
 		id := fmt.Sprintf("map_01M40KW4GB68ZT4D4HAE7J3X%02d", f.seq)
-		obj := map[string]any{"id": id, "key": body["key"], "label": body["label"], "from": body["from"], "to": body["to"], "cell": body["cell"], "rows": orEmpty(body["rows"]), "createdAt": now, "updatedAt": now}
+		obj := map[string]any{"id": id, "key": body["key"], "label": body["label"], "from": body["from"], "to": body["to"], "cell": body["cell"], "rows": orEmpty(body["rows"]), "createdAt": now, "updatedAt": now, "archivedAt": nil}
 		f.objects["/api/policy-mappings/"+id] = obj
 		reply(w, 201, obj)
 	case r.Method == http.MethodGet && p == "/api/policy-option-sources":
@@ -406,7 +418,8 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		items := []any{}
 		for k, o := range f.objects {
-			if !strings.HasPrefix(k, prefix) {
+			// Never an archived source.
+			if !strings.HasPrefix(k, prefix) || o["archivedAt"] != nil {
 				continue
 			}
 			list := orEmpty(o[entries]).([]any)
@@ -434,37 +447,49 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(w, 200, map[string]any{"items": items[at:min(at+1, len(items))], "nextCursor": next})
 	case strings.HasPrefix(p, "/api/policy-catalogues/"), strings.HasPrefix(p, "/api/policy-mappings/"):
-		// A catalogue or a mapping (GET, PATCH, DELETE); a key, a mapping's catalogues and its cell never change.
+		// A catalogue or a mapping (GET, PATCH; never deleted, archived instead); a key, a
+		// mapping's catalogues and its cell never change.
 		obj, ok := f.objects[p]
-		if !ok {
+		if !ok || r.Method == http.MethodDelete {
 			problem(w, 404, "NOT_FOUND")
 			return
 		}
-		switch r.Method {
-		case http.MethodDelete:
-			if strings.HasPrefix(p, "/api/policy-catalogues/") {
-				for _, o := range f.objects {
-					if strings.HasPrefix(fmt.Sprint(o["id"]), "map_") && (o["from"] == obj["key"] || o["to"] == obj["key"]) {
-						problem(w, 409, "IN_USE") // a mapping still names it: destroy removes the mapping first
-						return
-					}
-				}
-			}
-			delete(f.objects, p)
-			w.WriteHeader(204)
-			return
-		case http.MethodPatch:
+		if r.Method == http.MethodPatch {
 			for _, fixed := range []string{"key", "from", "to", "cell", "expectedUpdatedAt"} {
 				if _, ok := body[fixed]; ok {
 					problem(w, 400, "VALIDATION_FAILED")
 					return
 				}
 			}
-			for k, v := range body {
-				if k == "values" {
-					v = catalogueValues(v)
+			archive, archiving := body["archived"].(bool)
+			if obj["archivedAt"] != nil && !(archiving && !archive) {
+				if archiving && len(body) == 1 {
+					reply(w, 200, obj) // archived again: nothing changes
+					return
 				}
-				obj[k] = v
+				problem(w, 409, "ARCHIVED")
+				return
+			}
+			if archiving && archive && strings.HasPrefix(p, "/api/policy-catalogues/") {
+				for _, o := range f.objects {
+					if strings.HasPrefix(fmt.Sprint(o["id"]), "map_") && o["archivedAt"] == nil && (o["from"] == obj["key"] || o["to"] == obj["key"]) {
+						problem(w, 409, "IN_USE") // a live mapping still reads it: destroy archives the mapping first
+						return
+					}
+				}
+			}
+			for k, v := range body {
+				switch k {
+				case "values":
+					catalogueValues(obj, v, now)
+				case "archived":
+					obj["archivedAt"] = nil
+					if archive {
+						obj["archivedAt"] = now
+					}
+				default:
+					obj[k] = v
+				}
 			}
 			obj["updatedAt"] = now
 		}
@@ -535,14 +560,56 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // configurationTypes are a policy type's configuration types as the API
 // stores them: each with an id, its label null when left out.
-// catalogueValues answers a catalogue's values as the API does: a label left out is null.
-func catalogueValues(v any) []any {
-	out := []any{}
-	for _, it := range orEmpty(v).([]any) {
-		m := it.(map[string]any)
-		out = append(out, map[string]any{"value": m["value"], "label": m["label"]})
+// valueIDs are the ids the fake gives catalogue values, by catalogue key and text, so a
+// configuration can name one (a value's new text with its id); any other value gets one in sequence.
+var valueIDs = map[string]string{
+	"sizes_app/320x50":   "catval_01M40KW4GB68ZT4D4HAE7J3XS1",
+	"sizes_app/native":   "catval_01M40KW4GB68ZT4D4HAE7J3XS2",
+	"sizes_app/300x250":  "catval_01M40KW4GB68ZT4D4HAE7J3XS3",
+	"size_consumers/GAM": "catval_01M40KW4GB68ZT4D4HAE7J3XC1",
+}
+
+// catalogueValues writes `written` into the catalogue `obj` as the API does (P-114): a value
+// with an id is that value; one without is the value with that text, active or archived, or a
+// new one; a value left out is archived; a label left out is null.
+func catalogueValues(obj map[string]any, written any, now string) {
+	byID, byText := map[string]map[string]any{}, map[string]map[string]any{}
+	for _, list := range []string{"values", "archivedValues"} {
+		for _, it := range orEmpty(obj[list]).([]any) {
+			m := it.(map[string]any)
+			byID[m["id"].(string)], byText[m["value"].(string)] = m, m
+		}
 	}
-	return out
+	values, kept := []any{}, map[string]bool{}
+	for _, it := range orEmpty(written).([]any) {
+		m := it.(map[string]any)
+		id, _ := m["id"].(string)
+		if id == "" {
+			if prior, ok := byText[m["value"].(string)]; ok {
+				id = prior["id"].(string)
+			} else if fixed, ok := valueIDs[fmt.Sprint(obj["key"], "/", m["value"])]; ok {
+				id = fixed
+			} else {
+				id = fmt.Sprintf("catval_01M40KW4GB68ZT4D4HAE7J%04d", len(byID)+len(values)+1)
+			}
+		}
+		kept[id] = true
+		values = append(values, map[string]any{"id": id, "value": m["value"], "label": m["label"]})
+	}
+	archived := []any{}
+	for _, list := range []string{"values", "archivedValues"} {
+		for _, it := range orEmpty(obj[list]).([]any) {
+			m := it.(map[string]any)
+			if !kept[m["id"].(string)] {
+				at := m["archivedAt"]
+				if at == nil {
+					at = now
+				}
+				archived = append(archived, map[string]any{"id": m["id"], "value": m["value"], "label": m["label"], "archivedAt": at})
+			}
+		}
+	}
+	obj["values"], obj["archivedValues"] = values, archived
 }
 
 func (f *fakeAPI) catalogueByKey(key any) map[string]any {
@@ -689,6 +756,11 @@ func config(url, groupName string, sessionDays int, enabled bool, adProductStatu
 		first, second = second, first
 	}
 	attachments := "[\n    " + first + ",\n    " + second + ",\n  ]"
+	// The first size: written without its id, then given a new text by its id (P-114).
+	size, sizeText := `{ value = "320x50" }`, "320x50"
+	if sessionDays%2 == 1 {
+		size, sizeText = `{ id = "catval_01M40KW4GB68ZT4D4HAE7J3XS1", value = "320x100" }`, "320x100"
+	}
 	return fmt.Sprintf(`
 provider "das" {
   token     = "test"
@@ -754,12 +826,13 @@ resource "das_tag_manager_policy_site_platform" "s" {
   platform = "APP"
 }
 
-# Deleted on destroy. Values are a list kept in the order written, a label
-# left out (null in the answer) included; renamed in place.
+# Archived on destroy. Values are a list kept in the order written, a label
+# left out (null in the answer) included, each with the id the API gives it;
+# renamed in place, and the first value's text changed by its id.
 resource "das_tag_manager_policy_catalogue" "sizes" {
   key    = "sizes_app"
   label  = "Sizes for %[2]s"
-  values = [{ value = "320x50" }, { value = "native", label = "Native" }, { value = "300x250" }]
+  values = [%[7]s, { value = "native", label = "Native" }, { value = "300x250" }]
 }
 
 resource "das_tag_manager_policy_catalogue" "consumers" {
@@ -777,18 +850,18 @@ resource "das_tag_manager_policy_mapping" "map" {
   to    = das_tag_manager_policy_catalogue.consumers.key
   rows = [
     { key = "native", cells = [{ to = "PREBID" }] },
-    { key = "320x50", cells = [{ to = "PREBID" }, { to = "GAM" }] },
+    { key = "%[8]s", cells = [{ to = "PREBID" }, { to = "GAM" }] },
   ]
 }
 
 # A cell type (decimal): each cell's value is one jsonencode(). The cell type
-# follows the session days, so the second apply replaces the mapping.
+# never changes (a mapping is archived, never deleted: a change is a plan error).
 resource "das_tag_manager_policy_mapping" "floors" {
   key   = "size_floor_app"
   label = "Size floors"
   from  = das_tag_manager_policy_catalogue.sizes.key
   to    = das_tag_manager_policy_catalogue.consumers.key
-  cell  = { kind = "decimal", min = 0, max = %[3]d, unit = "EUR" }
+  cell  = { kind = "decimal", min = 0, max = 100, unit = "EUR" }
   rows = [
     { key = "300x250", cells = [{ to = "GAM", value_json = jsonencode(0.4) }, { to = "PREBID", value_json = jsonencode(0.35) }] },
   ]
@@ -883,7 +956,7 @@ resource "das_email_sender" "s" {
   local_part   = "notifications"
   display_name = "DAS Notifications"
 }
-`, url, groupName, sessionDays, enabled, adProductStatus, attachments)
+`, url, groupName, sessionDays, enabled, adProductStatus, attachments, size, sizeText)
 }
 
 // terraformVersion is the Terraform the gate runs on, as in CI
@@ -942,6 +1015,10 @@ func TestLifecycleAgainstTheContract(t *testing.T) {
 					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.1.value", "native"),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.1.label", "Native"),
 					resource.TestCheckNoResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.0.label"),
+					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.0.id", "catval_01M40KW4GB68ZT4D4HAE7J3XS1"),
+					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.2.id", "catval_01M40KW4GB68ZT4D4HAE7J3XS3"),
+					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "archived_values.#", "0"),
+					resource.TestCheckNoResourceAttr("das_tag_manager_policy_catalogue.sizes", "archived_at"),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.2.value", "300x250"),
 					resource.TestMatchResourceAttr("das_tag_manager_policy_mapping.map", "id", regexp.MustCompile(`^map_`)),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_mapping.map", "from", "sizes_app"),
@@ -996,6 +1073,11 @@ func TestLifecycleAgainstTheContract(t *testing.T) {
 					resource.TestCheckResourceAttr("das_tag_manager_policy_site_platform.s", "position", "31"),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_label.l", "name", "floorian-traffickers-renamed"),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "label", "Sizes for traffickers-renamed"),
+					// A new text by the value's id: the same value; the others keep theirs, none archived.
+					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.0.id", "catval_01M40KW4GB68ZT4D4HAE7J3XS1"),
+					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.0.value", "320x100"),
+					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "values.1.id", "catval_01M40KW4GB68ZT4D4HAE7J3XS2"),
+					resource.TestCheckResourceAttr("das_tag_manager_policy_catalogue.sizes", "archived_values.#", "0"),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_mapping.map", "label", "Size map for traffickers-renamed"),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_mapping.floors", "rows.0.cells.1.value_json", "0.35"),
 					resource.TestCheckResourceAttr("das_tag_manager_policy_configuration.cfg", "name", "Standard for traffickers-renamed"),
@@ -1007,14 +1089,27 @@ func TestLifecycleAgainstTheContract(t *testing.T) {
 					resource.TestCheckTypeSetElemNestedAttrs("das_tag_manager_policy.p", "labels.*", map[string]string{"name": "floorian-traffickers-renamed"}),
 				),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
-					// A new cell type is a new mapping; a label is changed in place.
+					// A label and a value's text are changed in place.
 					PreApply: []plancheck.PlanCheck{
-						plancheck.ExpectResourceAction("das_tag_manager_policy_mapping.floors", plancheck.ResourceActionReplace),
+						plancheck.ExpectResourceAction("das_tag_manager_policy_mapping.floors", plancheck.ResourceActionNoop),
 						plancheck.ExpectResourceAction("das_tag_manager_policy_mapping.map", plancheck.ResourceActionUpdate),
 						plancheck.ExpectResourceAction("das_tag_manager_policy_catalogue.sizes", plancheck.ResourceActionUpdate),
 					},
 					PostApplyPostRefresh: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},
+			},
+			{
+				// A mapping is never deleted, so a new cell type is an error at plan saying what to do instead.
+				Config:      strings.Replace(config(server.URL, "traffickers-renamed", 31, false, "ENABLED"), "max = 100, unit", "max = 50, unit", 1),
+				ExpectError: regexp.MustCompile(`(?s)Cannot change cell.*create\s+a\s+new\s+mapping\s+with\s+a\s+new\s+key,\s+point\s+the\s+policy\s+types'\s+fields\s+at\s+it,\s+then\s+archive\s+the\s+old\s+one`),
+			},
+			{
+				// A catalogue's key: the generic sentence only, no destroy reason (the mappings name the old key as text).
+				Config: strings.ReplaceAll(
+					strings.Replace(config(server.URL, "traffickers-renamed", 31, false, "ENABLED"), `key    = "size_consumers"`, `key    = "consumers_renamed"`, 1),
+					"to    = das_tag_manager_policy_catalogue.consumers.key", `to    = "size_consumers"`,
+				),
+				ExpectError: regexp.MustCompile(`(?s)Cannot change key.*das_tag_manager_policy_catalogue\.key\s+cannot\s+change:.*so\s+it\s+cannot\s+be\s+replaced\s+either\.\s*$`),
 			},
 			{
 				// On again, so destroy has something to switch off.
@@ -1076,7 +1171,7 @@ func TestLifecycleAgainstTheContract(t *testing.T) {
 					return fmt.Errorf("destroy must switch the sales channel off and keep its keys linked (fail closed): %v", o)
 				}
 			}
-			types, configurations, policies := 0, 0, 0
+			types, configurations, policies, sources := 0, 0, 0, 0
 			for p, o := range api.objects {
 				switch {
 				case strings.HasPrefix(p, "/api/policies/"):
@@ -1094,14 +1189,18 @@ func TestLifecycleAgainstTheContract(t *testing.T) {
 					if o["status"] != "ARCHIVED" || o["archivedAt"] == nil {
 						return fmt.Errorf("destroy must archive the policy type, never delete it: %v", o)
 					}
+				case strings.HasPrefix(p, "/api/policy-catalogues/"), strings.HasPrefix(p, "/api/policy-mappings/"):
+					sources++
+					if o["archivedAt"] == nil {
+						return fmt.Errorf("destroy must archive the catalogue or mapping, never delete it: %v", o)
+					}
 				case strings.HasPrefix(p, "/api/policy-target-dimensions/"), strings.HasPrefix(p, "/api/policy-site-platforms/"),
-					strings.HasPrefix(p, "/api/policy-labels/"),
-					strings.HasPrefix(p, "/api/policy-catalogues/"), strings.HasPrefix(p, "/api/policy-mappings/"):
+					strings.HasPrefix(p, "/api/policy-labels/"):
 					return fmt.Errorf("destroy did not delete %s", p)
 				}
 			}
-			if types != 1 || configurations != 2 || policies != 1 {
-				return fmt.Errorf("destroy must keep the archived policy type, configurations and policy: %d, %d, %d", types, configurations, policies)
+			if types != 1 || configurations != 2 || policies != 1 || sources != 4 {
+				return fmt.Errorf("destroy must keep the archived policy type, configurations, policy, catalogues and mappings: %d, %d, %d, %d", types, configurations, policies, sources)
 			}
 			if products != 1 || versions != 1 {
 				return fmt.Errorf("destroy must keep the ad product and its version (archived, immutable): %d, %d", products, versions)
@@ -1136,8 +1235,9 @@ func TestLifecycleAgainstTheContract(t *testing.T) {
 			mappingsPatched++
 		}
 	}
-	if mappingsCreated != 3 || mappingsPatched != 1 {
-		t.Errorf("a new cell type must replace the mapping (3 creates: map, floors twice) and a label change patch it (1): %d creates, %d patches", mappingsCreated, mappingsPatched)
+	// Created once each; patched for the label and rows, then archived by destroy (2).
+	if mappingsCreated != 2 || mappingsPatched != 3 {
+		t.Errorf("a mapping is created once, changed in place and archived on destroy (2 creates, 3 patches): %d creates, %d patches", mappingsCreated, mappingsPatched)
 	}
 }
 

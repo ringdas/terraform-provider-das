@@ -46,6 +46,10 @@ type Schema struct {
 	// (the API answers it in its own canonical order), held as a Terraform
 	// set so the plan compares it regardless of order.
 	Set bool
+	// Computed (`x-das-terraform-computed: true`): a nested input the API
+	// fills when it is left out (a catalogue value's id), so the provider
+	// keeps the answer's value instead of planning it away.
+	Computed bool
 	// Default is the JSON Schema `default`, when HasDefault.
 	Default    any
 	HasDefault bool
@@ -142,6 +146,7 @@ func (s *Spec) schema(raw any, depth int) (*Schema, error) {
 	out.WriteOnly, _ = m["writeOnly"].(bool)
 	out.JSON, _ = m["x-das-terraform-json"].(bool)
 	out.Set, _ = m["x-das-terraform-set"].(bool)
+	out.Computed, _ = m["x-das-terraform-computed"].(bool)
 	out.Default, out.HasDefault = m["default"]
 
 	for _, key := range []string{"anyOf", "oneOf"} {

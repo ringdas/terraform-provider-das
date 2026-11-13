@@ -2,6 +2,28 @@
 
 All notable changes to `terraform-provider-das`. The Release PR writes each section from the `.changeset/*.md` files (docs/engineering/release-process.md); do not edit it by hand.
 
+## [0.5.0] - 2026-11-10
+
+### Changed
+
+- **DAS Policies: catalogue values with ids, catalogues and mappings archived
+  instead of deleted, values no longer checked against catalogues**. A
+  catalogue value has an id (`catval_<ULID>`): `PATCH` of `values` keeps a
+  value by its `id` while its text changes, finds one without an id by its
+  text, and archives a value left out (`archivedValues`); mapping rows point
+  at values by id, so they follow a new text. A field's or a target
+  dimension's `optionsSource` is stored by the source's id and still written
+  and answered by key. Catalogues and mappings are archived with
+  `PATCH {archived: true}` and restored with `{archived: false}`
+  (`archivedAt`); their `DELETE` operations and the CLI's
+  `policy-catalogues delete` and `policy-mappings delete` are removed; lists
+  take `includeArchived=true`. A body, a target or a default is no longer
+  checked against a catalogue. In Terraform a value's `id` is optional and
+  computed, destroy archives a catalogue or a mapping, and a change of a
+  mapping's `key`, `from`, `to` or `cell` is an error at plan saying what to
+  do instead (a Terraform surface entry's new `changeInstead`). Migration
+  `0007_policy_value_ids` moves the existing data.
+
 ## [0.4.0] - 2026-11-06
 
 ### Added
